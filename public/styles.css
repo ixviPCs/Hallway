@@ -83,6 +83,22 @@ button:disabled { cursor: not-allowed; opacity: .55; }
 .profile-name, .online-profile { padding: 0; background: none; color: inherit; font: inherit; font-weight: 750; text-align: left; white-space: normal; }
 .real-name { display: block; margin-left: -1px; color: #8d98ac; font-size: .7rem; font-weight: 500; line-height: 1; }
 .profile-dialog { width: min(calc(100vw - 32px), 460px); }
+.dm-sidebar-toggle { padding: 7px 10px; border: 1px solid #3a4963; background: #202b3d; color: #dce6f6; font-size: 1rem; line-height: 1; }
+.dm-sidebar { position: fixed; z-index: 12; inset: 0 auto 0 0; display: flex; flex-direction: column; width: min(360px, 88vw); padding: 18px 14px; border-right: 1px solid #3a4963; background: #151b26; box-shadow: 14px 0 40px #0007; transform: translateX(-105%); transition: transform .2s ease; }
+.dm-sidebar.is-open { transform: translateX(0); }
+.dm-sidebar-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 4px 4px 16px; border-bottom: 1px solid #303b51; }
+.dm-new-button { width: 38px; height: 38px; padding: 0; border-radius: 50%; font-size: 1.45rem; line-height: 1; }
+.dm-conversations { display: grid; align-content: start; gap: 5px; overflow-y: auto; margin: 10px 0 0; padding: 0; list-style: none; }
+.dm-conversation { display: flex; width: 100%; align-items: center; gap: 10px; padding: 10px 9px; border: 1px solid transparent; background: transparent; color: #eff3f8; text-align: left; }
+.dm-conversation:hover { border-color: #3a4963; background: #202b3d; }
+.dm-conversation-avatar { display: grid; width: 42px; height: 42px; flex: 0 0 42px; place-items: center; overflow: hidden; border-radius: 50%; background: #354561; color: #dce6f6; font-weight: 750; }
+.dm-conversation-avatar img { width: 100%; height: 100%; object-fit: cover; }
+.dm-conversation-copy { display: grid; min-width: 0; flex: 1; gap: 3px; }
+.dm-conversation-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dm-conversation-preview { overflow: hidden; color: #aeb8c8; font-size: .82rem; text-overflow: ellipsis; white-space: nowrap; }
+.dm-conversation-time { align-self: flex-start; color: #8792a5; font-size: .72rem; white-space: nowrap; }
+.dm-unread-badge { display: grid; min-width: 20px; height: 20px; place-items: center; padding: 0 5px; border-radius: 999px; background: #e23f50; color: white; font-size: .72rem; font-weight: 800; }
+.dm-sidebar-backdrop { position: fixed; z-index: 11; inset: 0; width: 100%; height: 100%; border-radius: 0; background: #0008; }
 .dm-dialog { width: min(calc(100vw - 32px), 560px); max-height: min(82vh, 760px); }
 .dm-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .dm-header h2 { margin: 0; }
