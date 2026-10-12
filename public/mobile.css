@@ -44,3 +44,7 @@
 .mobile-page .mobile-message-actions { border-color: var(--slate-border); background: var(--slate-panel); }
 .mobile-page .mobile-message-actions .message-action { background: var(--slate-raised); color: var(--slate-text); }
 .mobile-page .mobile-message-actions .delete-action { background: #8a4650; color: #fff; }
+
+.mobile-page .dm-sidebar { padding-top: calc(18px + env(safe-area-inset-top)); padding-bottom: max(18px, env(safe-area-inset-bottom)); }
+.mobile-page #dm-thread-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mobile-page .dm-thread-view .identity-block { min-width: 0; }
