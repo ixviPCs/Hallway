@@ -98,6 +98,15 @@ button:disabled { cursor: not-allowed; opacity: .55; }
 .dm-conversation-preview { overflow: hidden; color: #aeb8c8; font-size: .82rem; text-overflow: ellipsis; white-space: nowrap; }
 .dm-conversation-time { align-self: flex-start; color: #8792a5; font-size: .72rem; white-space: nowrap; }
 .dm-unread-badge { display: grid; min-width: 20px; height: 20px; place-items: center; padding: 0 5px; border-radius: 999px; background: #e23f50; color: white; font-size: .72rem; font-weight: 800; }
+.dm-contact-cancel { width: 100%; padding: 9px; background: transparent; color: #aeb8c8; text-align: left; }
+.dm-thread-view { display: block; }
+.dm-thread-view .chat-topbar { gap: 12px; }
+.dm-thread-view .chat-message { position: relative; }
+.dm-thread-view .dm-mine .message-body { justify-content: flex-end; }
+.dm-thread-view .dm-mine .message-content { padding: 9px 12px; border-radius: 14px 14px 4px 14px; background: #26374e; }
+.dm-thread-view .chat-message:not(.dm-mine) .message-content { padding: 9px 12px; border-radius: 14px 14px 14px 4px; background: #202b3d; }
+.dm-thread-view .message-content p { margin: 0; }
+.dm-thread-view .error { position: fixed; z-index: 3; bottom: 72px; left: 50%; transform: translateX(-50%); }
 .dm-sidebar-backdrop { position: fixed; z-index: 11; inset: 0; width: 100%; height: 100%; border-radius: 0; background: #0008; }
 .dm-dialog { width: min(calc(100vw - 32px), 560px); max-height: min(82vh, 760px); }
 .dm-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
