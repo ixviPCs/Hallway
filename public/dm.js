@@ -1,106 +1,25 @@
 (() => {
-  const $ = selector => document.querySelector(selector);
-  const dialog = $("#dm-dialog"), contact = $("#dm-contact"), adminList = $("#dm-messages"), adminForm = $("#dm-form"), adminInput = $("#dm-input"), adminError = $("#dm-error"), adminView = $("#dm-admin-view");
-  const sidebar = $("#dm-sidebar"), backdrop = $("#dm-sidebar-backdrop"), conversations = $("#dm-conversations"), sidebarError = $("#dm-sidebar-error"), sidebarTitle = $("#dm-sidebar h2"), toggle = $("#dm-open");
-  const groupPanel = $("#chat-panel"), threadPanel = $("#dm-thread-view"), threadTitle = $("#dm-thread-title"), threadAvatar = $("#dm-thread-avatar"), threadMessages = $("#dm-thread-messages"), threadForm = $("#dm-thread-form"), threadInput = $("#dm-thread-input"), threadError = $("#dm-thread-error");
-  let peerId = "", messages = [], adminMessages = [], inbox = [], contacts = [], showingContacts = false, adminMode = false;
-  const adminOpen = $("#dm-admin-open");
-  adminView.hidden = !account?.admin; adminOpen.hidden = !account?.admin;
-  const label = profile => profile?.nickname || profile?.name || "Unknown";
-  const profiles = new Map();
-  function relativeTime(timestamp) {
-    const age = Math.max(0, Date.now() - Number(timestamp || 0));
-    if (age < 60000) return "now";
-    if (age < 3600000) return `${Math.floor(age / 60000)}m`;
-    if (age < 86400000) return `${Math.floor(age / 3600000)}h`;
-    if (age < 604800000) return `${Math.floor(age / 86400000)}d`;
-    return new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric" }).format(timestamp);
-  }
-  function refreshInbox() {
-    socket.emit("get dm inbox", result => {
-      if (!result?.ok) { sidebarError.textContent = result?.error || "Could not load direct messages."; return; }
-      inbox = result.conversations || []; inbox.forEach(item => profiles.set(item.peer.id, item.peer));
-      if (!showingContacts) renderInbox();
-    });
-  }
-  function makePersonButton(profile, conversation) {
-    const item = document.createElement("li"), button = document.createElement("button"), avatar = document.createElement("span"), copy = document.createElement("span"), name = document.createElement("strong");
-    button.type = "button"; button.className = "dm-conversation"; button.setAttribute("aria-label", `${label(profile)}${conversation?.unread ? `, ${conversation.unread} unread` : ""}`);
-    avatar.className = "dm-conversation-avatar"; avatar.textContent = label(profile).trim().charAt(0).toUpperCase() || "?";
-    if (profile.avatar) { const image = document.createElement("img"); image.src = profile.avatar; image.alt = ""; avatar.replaceChildren(image); }
-    copy.className = "dm-conversation-copy"; name.className = "dm-conversation-name"; name.textContent = label(profile); copy.append(name);
-    if (conversation) { const preview = document.createElement("span"), time = document.createElement("time"); preview.className = "dm-conversation-preview"; preview.textContent = conversation.preview || "Start a conversation"; time.className = "dm-conversation-time"; time.textContent = relativeTime(conversation.timestamp); copy.append(preview); button.append(avatar, copy, time); if (conversation.unread > 0) { const badge = document.createElement("span"); badge.className = "dm-unread-badge"; badge.textContent = conversation.unread > 99 ? "99+" : String(conversation.unread); badge.setAttribute("aria-label", `${conversation.unread} unread messages`); button.append(badge); } }
-    else button.append(avatar, copy);
-    item.append(button); return { item, button };
-  }
-  function renderInbox() {
-    sidebarTitle.textContent = "Messages"; conversations.replaceChildren();
-    inbox.forEach(conversation => { const row = makePersonButton(conversation.peer, conversation); row.button.addEventListener("click", () => openThread(conversation.peer.id)); conversations.append(row.item); });
-  }
-  function showContacts() {
-    showingContacts = true; sidebarTitle.textContent = "New message"; sidebarError.textContent = ""; conversations.replaceChildren();
-    const cancelItem = document.createElement("li"), cancel = document.createElement("button"); cancel.className = "dm-contact-cancel"; cancel.textContent = "← Back to messages"; cancel.type = "button"; cancel.onclick = () => { showingContacts = false; renderInbox(); }; cancelItem.append(cancel); conversations.append(cancelItem);
-    contacts.forEach(profile => { const row = makePersonButton(profile, null); row.button.addEventListener("click", () => openThread(profile.id)); conversations.append(row.item); });
-  }
-  function openSidebar() { sidebar.classList.add("is-open"); sidebar.setAttribute("aria-hidden", "false"); backdrop.hidden = false; toggle?.setAttribute("aria-expanded", "true"); refreshInbox(); }
-  function closeSidebar() { sidebar.classList.remove("is-open"); sidebar.setAttribute("aria-hidden", "true"); backdrop.hidden = true; toggle?.setAttribute("aria-expanded", "false"); }
-  function loadContacts(callback) {
-    socket.emit("get dm contacts", result => {
-      if (!result?.ok) { sidebarError.textContent = result?.error || "Could not load people."; return; }
-      contacts = result.contacts || []; contacts.forEach(profile => profiles.set(profile.id, profile)); callback?.();
-    });
-  }
-  function openThread(id) {
-    const peer = profiles.get(id) || contacts.find(profile => profile.id === id) || inbox.find(item => item.peer.id === id)?.peer;
-    if (!peer) return;
-    showingContacts = false; renderInbox(); peerId = id; messages = []; threadError.textContent = ""; threadTitle.textContent = label(peer); threadAvatar.src = peer.avatar || ""; threadAvatar.hidden = !peer.avatar;
-    groupPanel.hidden = true; threadPanel.hidden = false; closeSidebar(); drawThread();
-    socket.emit("get direct messages", id, result => {
-      if (!result?.ok) { threadError.textContent = result?.error || "Could not load this conversation."; return; }
-      if (peerId === id) { profiles.set(result.peer.id, result.peer); messages = result.messages || []; drawThread(); socket.emit("mark dm read", id, refreshInbox); }
-    });
-  }
-  function backToGroup() { peerId = ""; threadPanel.hidden = true; groupPanel.hidden = false; }
-  function addThreadMessage(message) {
-    const item = document.createElement("li"), meta = document.createElement("div"), line = document.createElement("div"), author = document.createElement("strong"), time = document.createElement("time"), body = document.createElement("div"), content = document.createElement("div"), text = document.createElement("p");
-    item.className = `chat-message${message.fromId === accountId ? " dm-mine" : ""}`; meta.className = "message-meta"; line.className = "author-line"; author.textContent = message.fromId === accountId ? "You" : label(profiles.get(message.fromId)); time.textContent = new Intl.DateTimeFormat(undefined, {hour:"numeric", minute:"2-digit"}).format(message.timestamp); line.append(author, time); meta.append(line); body.className = "message-body"; content.className = "message-content"; text.textContent = message.text; content.append(text); body.append(content); item.append(meta, body); threadMessages.append(item);
-  }
-  function drawThread() { threadMessages.replaceChildren(); messages.forEach(addThreadMessage); threadMessages.scrollTop = threadMessages.scrollHeight; }
-  function receive(message) {
-    if (!message) return; refreshInbox();
-    if (!((message.fromId === accountId && message.toId === peerId) || (message.fromId === peerId && message.toId === accountId))) return;
-    if (!profiles.has(message.fromId) && inbox.find(item => item.peer.id === message.fromId)) profiles.set(message.fromId, inbox.find(item => item.peer.id === message.fromId).peer);
-    const index = messages.findIndex(item => item.id === message.id); if (index < 0) messages.push(message); else messages[index] = message;
-    messages.sort((a,b) => a.timestamp-b.timestamp); drawThread();
-    if (!threadPanel.hidden && message.fromId !== accountId) socket.emit("mark dm read", peerId, refreshInbox);
-  }
-  toggle?.addEventListener("click", openSidebar); $("#dm-thread-sidebar-open").addEventListener("click", openSidebar); backdrop.addEventListener("click", closeSidebar);
-  $("#dm-new").addEventListener("click", () => loadContacts(showContacts));
-  $("#dm-thread-back").addEventListener("click", backToGroup);
-  document.addEventListener("keydown", event => { if (event.key === "Escape") closeSidebar(); });
-  threadForm.addEventListener("submit", event => {
-    event.preventDefault(); const text = threadInput.value.trim(); if (!peerId || !text) return;
-    const toId = peerId; threadInput.disabled = true; socket.emit("direct message", {toId, text}, result => {
-      threadInput.disabled = false; if (!result?.ok) { threadError.textContent = result?.error || "Message could not be sent."; return; }
-      threadInput.value = ""; threadInput.focus(); threadError.textContent = "";
-    });
-  });
-  socket.on("direct message", receive); socket.on("connect", refreshInbox); socket.on("history", () => { adminOpen.hidden = !account?.admin; adminView.hidden = !account?.admin; refreshInbox(); });
-
-  // Preserve the existing admin-only DM inspection tools in their separate dialog.
-  function drawAdmin() {
-    adminList.replaceChildren();
-    adminMessages.forEach(message => { const item = document.createElement("li"), author = document.createElement("strong"), text = document.createElement("span"), time = document.createElement("time"); item.className = "dm-message"; author.textContent = label(profiles.get(message.fromId)); text.textContent = message.text; time.textContent = new Intl.DateTimeFormat(undefined,{hour:"numeric",minute:"2-digit"}).format(message.timestamp); item.append(author,text,time); adminList.append(item); });
-    adminList.scrollTop = adminList.scrollHeight;
-  }
-  function loadAdminList() {
-    adminError.textContent = ""; contact.disabled = true;
-    socket.emit("admin get dm conversations", result => { contact.disabled = false; if (!result?.ok) { adminError.textContent = result?.error || "Could not load conversations."; return; } contact.replaceChildren(new Option("Choose a conversation…", "")); result.conversations.forEach(pair => { profiles.set(pair.a.id,pair.a); profiles.set(pair.b.id,pair.b); const option = new Option(`${label(pair.a)} ↔ ${label(pair.b)}`, pair.key); option.pair = pair; contact.add(option); }); adminMessages=[]; adminList.replaceChildren(); });
-  }
-  contact.addEventListener("change", () => { const pair=contact.selectedOptions[0]?.pair; if (!pair) return; socket.emit("admin get dm conversation",{a:pair.a.id,b:pair.b.id},result=>{ if (!result?.ok) { adminError.textContent=result?.error||"Could not load this conversation."; return; } profiles.set(result.a.id,result.a); profiles.set(result.b.id,result.b); adminMessages=result.messages||[]; drawAdmin(); }); });
-  function openAdminDMs() { adminMode=true; adminForm.hidden=true; dialog.showModal(); loadAdminList(); }
-  adminView.addEventListener("click", openAdminDMs); adminOpen.addEventListener("click", openAdminDMs);
-  $("#dm-close").addEventListener("click", () => dialog.close());
-  adminForm.addEventListener("submit", event => { event.preventDefault(); const text=adminInput.value.trim(); if (!peerId||!text||adminMode) return; });
-  void adminForm; void adminInput; void adminMode;
+  const $ = s => document.querySelector(s), socketRef = socket;
+  const sidebar=$("#dm-sidebar"), backdrop=$("#dm-sidebar-backdrop"), list=$("#dm-conversations"), title=$("#dm-sidebar h2"), toggle=$("#dm-open"), thread=$("#dm-thread-view"), group=$("#chat-panel"), threadTitle=$("#dm-thread-title"), threadAvatar=$("#dm-thread-avatar"), output=$("#dm-thread-messages"), form=$("#dm-thread-form"), input=$("#dm-thread-input"), error=$("#dm-thread-error"), fileInput=$("#dm-attachment-input"), filePreview=$("#dm-attachment-preview"), replyPreview=$("#dm-reply-preview"), replyText=$("#dm-reply-preview-text");
+  const settings=$("#dm-sidebar-settings"), settingsToggle=$("#dm-settings-toggle"), adminOpen=$("#dm-admin-open");
+  let peerId="", messages=[], inbox=[], contacts=[], files=[], reply=null, adminMode=false, activePair=null, adminPairs=[];
+  const dmProfiles=new Map(); const putProfile=p=>{if(p?.id){dmProfiles.set(p.id,p);profiles.set(p.id,p)}}; const label=p=>p?.nickname||p?.name||"Unknown";
+  function time(t){return new Intl.DateTimeFormat(undefined,{hour:"numeric",minute:"2-digit"}).format(t)}
+  function draw(){output.replaceChildren();let last=null,lastTime=0;for(const m of messages){const grouped=last===m.authorId&&m.timestamp-lastTime<300000;renderMessage(m,grouped,output,adminMode?"dmAdmin":"dm");last=m.authorId;lastTime=m.timestamp;}output.scrollTop=output.scrollHeight}
+  function row(profile,conversation,onClick){const li=document.createElement("li"),b=document.createElement("button");b.type="button";b.className="dm-conversation";const av=document.createElement("span"),copy=document.createElement("span"),name=document.createElement("strong");av.className="dm-conversation-avatar";av.textContent=label(profile).slice(0,1).toUpperCase();if(profile.avatar){const i=document.createElement("img");i.src=profile.avatar;i.alt="";av.replaceChildren(i)}copy.className="dm-conversation-copy";name.className="dm-conversation-name";name.textContent=label(profile);copy.append(name);if(conversation){const preview=document.createElement("span");preview.className="dm-conversation-preview";preview.textContent=conversation.preview||"Start a conversation";copy.append(preview);const t=document.createElement("time");t.className="dm-conversation-time";t.textContent=time(conversation.timestamp);b.append(av,copy,t);if(conversation.unread){const badge=document.createElement("span");badge.className="dm-unread-badge";badge.textContent=conversation.unread>99?"99+":conversation.unread;b.append(badge)}}else b.append(av,copy);b.onclick=onClick;li.append(b);list.append(li)}
+  function refresh(){socketRef.emit("get dm inbox",r=>{if(!r?.ok)return;inbox=r.conversations||[];inbox.forEach(x=>putProfile(x.peer));if(!settings.hidden)return;renderInbox()})}
+  function renderInbox(){title.textContent=adminMode?"Admin DM viewer":"Messages";list.replaceChildren();if(thread&&!thread.hidden){const li=document.createElement("li"),b=document.createElement("button");b.type="button";b.className="dm-contact-cancel";b.textContent="← Back to group chat";b.onclick=backGroup;li.append(b);list.append(li)}if(adminMode){adminPairs.forEach(p=>{putProfile(p.a);putProfile(p.b);row({name:`${label(p.a)} ↔ ${label(p.b)}`,id:p.key},p,()=>openAdminPair(p))});return}inbox.forEach(c=>row(c.peer,c,()=>openThread(c.peer.id)))}
+  function open(){sidebar.classList.add("is-open");sidebar.setAttribute("aria-hidden","false");backdrop.hidden=false;toggle?.setAttribute("aria-expanded","true");refresh()}
+  function close(){sidebar.classList.remove("is-open");sidebar.setAttribute("aria-hidden","true");backdrop.hidden=true;toggle?.setAttribute("aria-expanded","false")}
+  function openThread(id){adminMode=false;activePair=null;const peer=dmProfiles.get(id)||contacts.find(x=>x.id===id)||inbox.find(x=>x.peer.id===id)?.peer;if(!peer)return;peerId=id;messages=[];threadTitle.textContent=label(peer);threadAvatar.src=peer.avatar||"";threadAvatar.hidden=!peer.avatar;form.hidden=false;group.hidden=true;thread.hidden=false;renderInbox();close();draw();socketRef.emit("get direct messages",id,r=>{if(!r?.ok){error.textContent=r?.error||"Could not load this conversation.";return}putProfile(r.peer);messages=r.messages||[];messages.forEach(m=>putProfile({id:m.authorId,name:m.name,nickname:m.nickname,avatar:m.avatar}));draw();socketRef.emit("mark dm read",id,refresh)})}
+  function openAdmin(){if(!account?.admin)return;settings.hidden=true;list.hidden=false;settingsToggle.textContent="⚙ Settings";settingsToggle.setAttribute("aria-expanded","false");adminMode=true;peerId="";thread.hidden=false;group.hidden=true;form.hidden=true;threadTitle.textContent="Admin DM viewer";threadAvatar.hidden=true;output.replaceChildren();socketRef.emit("admin get dm conversations",r=>{if(!r?.ok)return;adminPairs=r.conversations||[];renderInbox();open()})}
+  function openAdminPair(p){activePair=p;adminMode=true;peerId="";threadTitle.textContent=`${label(p.a)} ↔ ${label(p.b)}`;threadAvatar.hidden=true;form.hidden=true;socketRef.emit("admin get dm conversation",{a:p.a.id,b:p.b.id},r=>{if(!r?.ok){error.textContent=r?.error||"Could not load conversation.";return}putProfile(r.a);putProfile(r.b);messages=r.messages||[];draw()})}
+  function backGroup(){thread.hidden=true;group.hidden=false;peerId="";adminMode=false;renderInbox();adminMode=false;activePair=null;close()}
+  function addFileSelection(selected){const next=[...files,...selected];if(next.length>3||next.reduce((n,f)=>n+f.size,0)>25*1024*1024){error.textContent="Choose up to 3 files totaling 25 MB or less.";return}files=next;filePreview.replaceChildren();filePreview.hidden=!files.length;files.forEach((f,i)=>{const b=document.createElement("button");b.type="button";b.className="file-tag";b.textContent=`${f.name} ×`;b.onclick=()=>{files.splice(i,1);addFileSelection([])};filePreview.append(b)})}
+  window.beginDirectReply=m=>{reply={id:m.id};replyText.textContent=`Replying to ${label(dmProfiles.get(m.authorId)||m)}: ${m.text||"Attachment"}`;replyPreview.hidden=false;input.focus()};window.clearDirectReply=()=>{reply=null;replyPreview.hidden=true};window.editDirectMessage=(m,item)=>{const content=item.querySelector(".message-content"),p=content.querySelector("p"),editor=document.createElement("textarea");editor.className="inline-editor";editor.maxLength=1000;editor.value=m.text;const controls=document.createElement("div");controls.className="inline-edit-controls";const save=document.createElement("button"),cancel=document.createElement("button");save.textContent="Save";cancel.textContent="Cancel";save.onclick=()=>socketRef.emit("edit direct message",{id:m.id,text:editor.value},r=>{if(!r?.ok)error.textContent=r.error||"Could not edit message."});cancel.onclick=draw;content.replaceChild(editor,p);content.append(controls);controls.append(save,cancel);editor.focus()};
+  $("#dm-thread-sidebar-open").onclick=open;$("#dm-new").onclick=()=>socketRef.emit("get dm contacts",r=>{if(!r?.ok)return;settings.hidden=true;list.hidden=false;settingsToggle.textContent="⚙ Settings";settingsToggle.setAttribute("aria-expanded","false");contacts=r.contacts||[];list.replaceChildren();title.textContent="New message";const back=document.createElement("li"),b=document.createElement("button");b.className="dm-contact-cancel";b.textContent="← Back to messages";b.onclick=renderInbox;back.append(b);list.append(back);contacts.forEach(p=>{putProfile(p);row(p,null,()=>openThread(p.id))});open()});toggle?.addEventListener("click",open);backdrop.onclick=close;settingsToggle.onclick=()=>{settings.hidden=!settings.hidden;settingsToggle.setAttribute("aria-expanded",String(!settings.hidden));if(!settings.hidden){settingsToggle.textContent="← Messages";list.hidden=true;title.textContent="Settings"}else{settingsToggle.textContent="⚙ Settings";list.hidden=false;renderInbox()}};adminOpen.onclick=openAdmin;$("#dm-thread-back")?.addEventListener("click",backGroup);$("#dm-add-attachment").onclick=()=>fileInput.click();fileInput.onchange=()=>{addFileSelection([...fileInput.files]);fileInput.value=""};$("#dm-cancel-reply").onclick=window.clearDirectReply;
+  form.onsubmit=e=>{e.preventDefault();if(!peerId||adminMode)return;const text=input.value.trim();if(!text&&!files.length)return;const request={toId:peerId,text,files:files.map(f=>({name:f.name,type:f.type,data:f})),replyTo:reply};input.disabled=true;socketRef.emit("direct message",request,r=>{input.disabled=false;if(!r?.ok){error.textContent=r?.error||"Message could not be sent.";return}input.value="";files=[];addFileSelection([]);window.clearDirectReply();error.textContent="";if(r.message)receive(r.message)})};
+  function receive(m){if(!m)return;refresh();notifyIncomingMessage?.(m);if(!adminMode&&((m.fromId===accountId&&m.toId===peerId)||(m.fromId===peerId&&m.toId===accountId))){const i=messages.findIndex(x=>x.id===m.id);if(i<0)messages.push(m);else messages[i]=m;messages.sort((a,b)=>a.timestamp-b.timestamp);draw();if(m.fromId!==accountId)socketRef.emit("mark dm read",peerId,refresh)}else if(adminMode&&activePair&&[activePair.a.id,activePair.b.id].includes(m.fromId)&&[activePair.a.id,activePair.b.id].includes(m.toId)){const i=messages.findIndex(x=>x.id===m.id);if(i<0)messages.push(m);else messages[i]=m;draw()}}
+  function update(id,fn){const i=messages.findIndex(m=>m.id===id);if(i<0)return;const next=fn(messages[i]);if(next===null)messages.splice(i,1);else messages[i]=next;draw()}
+  socketRef.on("direct message",receive);socketRef.on("admin direct message",receive);socketRef.on("direct message updated",x=>update(x.id,m=>({...m,text:x.text,editedAt:x.editedAt})));socketRef.on("direct message deleted",id=>update(id,()=>null));socketRef.on("direct message soft deleted",m=>update(m.id,()=>m));socketRef.on("direct message permanently deleted",id=>update(id,()=>null));socketRef.on("direct message reactions",x=>update(x.id,m=>({...m,reactions:x.reactions})));socketRef.on("admin direct message updated",x=>update(x.id,m=>({...m,text:x.text,editedAt:x.editedAt})));socketRef.on("admin direct message soft deleted",m=>update(m.id,()=>m));socketRef.on("admin direct message permanently deleted",id=>update(id,()=>null));socketRef.on("admin direct message reactions",x=>update(x.id,m=>({...m,reactions:x.reactions})));socketRef.on("connect",refresh);socketRef.on("history",()=>{adminOpen.hidden=!account?.admin;refresh()});
 })();
