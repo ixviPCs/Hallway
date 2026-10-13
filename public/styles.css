@@ -254,7 +254,10 @@ button:hover:not(:disabled) { background: #b1c0c5; }
 .dm-leave-circle { display: grid; width: 42px; height: 42px; flex: 0 0 42px; place-items: center; padding: 0; border-radius: 50%; background: #8a4650; color: #fff; font-size: 1.25rem; }
 
 .dm-sidebar .dm-conversation:hover { border-color: #3a4963; background: #202b3d; color: #eff3f8; }
-.dm-sidebar-backdrop:hover, .dm-sidebar-backdrop:focus, .dm-sidebar-backdrop:active { background: #0008; }
+.dm-sidebar-backdrop:hover:not(:disabled), .dm-sidebar-backdrop:focus:not(:disabled), .dm-sidebar-backdrop:active:not(:disabled) { background: #0008; color: transparent; }
+.remove-profile-avatar { justify-self: center; margin: -4px auto 8px; }
+.profile-dialog form { display: flex; flex-direction: column; }
+.profile-dialog .dialog-avatar-button { align-self: center; }
 .dm-online-users { flex: 0 0 auto; margin: 4px 0 10px; }
 .dm-online-users summary { padding: 8px 10px; border: 1px solid #303b51; border-radius: 9px; }
 .dm-online-users ul { max-height: min(230px, 40vh); }
