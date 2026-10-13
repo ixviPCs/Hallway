@@ -38,6 +38,7 @@ button:disabled { cursor: not-allowed; opacity: .55; }
 .online-users { position: relative; }
 .online-users summary { cursor: pointer; color: #91b8ff; list-style: none; }
 .online-users summary::-webkit-details-marker { display: none; }
+
 .online-users summary::after { content: "▾"; margin-left: 5px; }
 .online-users[open] summary::after { content: "▴"; }
 .online-users ul { position: absolute; z-index: 4; right: 0; top: 24px; width: min(220px, calc(100vw - 24px)); max-height: min(230px, calc(100dvh - 104px)); overflow-y: auto; margin: 0; padding: 8px; list-style: none; border: 1px solid #46546f; border-radius: 10px; background: #151b26; box-shadow: 0 12px 30px rgba(0,0,0,.35); }
@@ -56,7 +57,8 @@ button:disabled { cursor: not-allowed; opacity: .55; }
 .status-dot { width: 9px; height: 9px; flex: 0 0 9px; border-radius: 50%; background: #778196; }
 .status-online .status-dot { background: #65cf96; box-shadow: 0 0 8px #65cf9699; }
 .status-away .status-dot { background: #e6ad4e; box-shadow: 0 0 8px #e6ad4e88; }
-.messages { position: fixed; inset: 64px 0 90px; width: min(100%, 940px); overflow-y: auto; list-style: none; margin: 0 auto; padding: 28px clamp(18px, 4vw, 48px); display: grid; align-content: start; gap: 0; }
+.messages { position: fixed; inset: 64px 0 90px; width: 100%; overflow-y: auto; list-style: none; margin: 0 auto; padding: 28px clamp(18px, 4vw, 48px); display: grid; align-content: start; gap: 0; }
+.messages > li { width: 100%; max-width: 940px; justify-self: center; }
 .messages > li + li { margin-top: 16px; }
 .messages::-webkit-scrollbar { display: none; }
 .messages { scrollbar-width: none; }
@@ -257,3 +259,5 @@ button:hover:not(:disabled) { background: #b1c0c5; }
 .topbar-online-users { z-index: 5; }
 .topbar-online-users summary { padding: 6px 9px; border: 1px solid var(--slate-border); border-radius: 8px; }
 .topbar-online-users ul { top: calc(100% + 5px); right: 0; }
+
+.online-users.topbar-online-users summary::after, .online-users.topbar-online-users[open] summary::after { content: none; }
