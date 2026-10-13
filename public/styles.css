@@ -90,7 +90,8 @@ button:disabled { cursor: not-allowed; opacity: .55; }
 .profile-name, .online-profile { padding: 0; background: none; color: inherit; font: inherit; font-weight: 750; text-align: left; white-space: normal; }
 .real-name { display: block; margin-left: -1px; color: #8d98ac; font-size: .7rem; font-weight: 500; line-height: 1; }
 .profile-dialog { width: min(calc(100vw - 32px), 460px); }
-.dm-sidebar-toggle { padding: 7px 10px; border: 1px solid #3a4963; background: #202b3d; color: #dce6f6; font-size: 1rem; line-height: 1; }
+.dm-sidebar-toggle { position: relative; padding: 7px 10px; border: 1px solid #3a4963; background: #202b3d; color: #dce6f6; font-size: 1rem; line-height: 1; }
+.hamburger-unread-badge { position: absolute; top: -8px; left: -8px; display: grid; min-width: 19px; height: 19px; place-items: center; padding: 0 4px; border: 2px solid #151b26; border-radius: 999px; background: #e23f50; color: #fff; font-size: .65rem; font-weight: 800; line-height: 1; white-space: nowrap; }
 .dm-sidebar { position: fixed; z-index: 12; inset: 0 auto 0 0; display: flex; flex-direction: column; width: min(360px, 88vw); padding: 18px 14px; border-right: 1px solid #3a4963; background: #151b26; box-shadow: 14px 0 40px #0007; transform: translateX(-105%); transition: transform .2s ease; }
 .dm-sidebar.is-open { transform: translateX(0); }
 .dm-sidebar-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 4px 4px 16px; border-bottom: 1px solid #303b51; }
