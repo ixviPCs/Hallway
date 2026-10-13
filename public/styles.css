@@ -42,6 +42,11 @@ button:disabled { cursor: not-allowed; opacity: .55; }
 .online-users summary::after { content: "▾"; margin-left: 5px; }
 .online-users[open] summary::after { content: "▴"; }
 .online-users ul { position: absolute; z-index: 4; right: 0; top: 24px; width: min(220px, calc(100vw - 24px)); max-height: min(230px, calc(100dvh - 104px)); overflow-y: auto; margin: 0; padding: 8px; list-style: none; border: 1px solid #46546f; border-radius: 10px; background: #151b26; box-shadow: 0 12px 30px rgba(0,0,0,.35); }
+.online-users ul { scrollbar-width: none; }
+.online-users ul::-webkit-scrollbar { display: none; }
+.load-older-button, .jump-to-bottom { position: fixed; z-index: 5; left: 50%; transform: translateX(-50%); border: 1px solid #46546f; border-radius: 999px; padding: 8px 14px; color: #eef3fb; background: #202b40; box-shadow: 0 5px 20px #0006; cursor: pointer; }
+.load-older-button { top: 70px; }
+.jump-to-bottom { bottom: 100px; }
 .online-users li { padding: 7px 8px; overflow-wrap: anywhere; }
 .online-users li { display: flex; align-items: center; gap: 8px; }
 .admin-tools-menu { position: absolute; z-index: 6; right: 0; top: 30px; width: min(270px, calc(100vw - 24px)); padding: 12px; border: 1px solid #46546f; border-radius: 10px; background: #151b26; box-shadow: 0 12px 30px rgba(0,0,0,.35); }
