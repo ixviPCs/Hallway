@@ -87,7 +87,8 @@ button:disabled { cursor: not-allowed; opacity: .55; }
 .dm-sidebar { position: fixed; z-index: 12; inset: 0 auto 0 0; display: flex; flex-direction: column; width: min(360px, 88vw); padding: 18px 14px; border-right: 1px solid #3a4963; background: #151b26; box-shadow: 14px 0 40px #0007; transform: translateX(-105%); transition: transform .2s ease; }
 .dm-sidebar.is-open { transform: translateX(0); }
 .dm-sidebar-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 4px 4px 16px; border-bottom: 1px solid #303b51; }
-.dm-new-button { width: 38px; height: 38px; padding: 0; border-radius: 50%; font-size: 1.45rem; line-height: 1; }
+.dm-new-button { width: 100%; padding: 10px 9px; border: 1px solid transparent; background: transparent; color: #eff3f8; text-align: left; }
+.dm-new-button:hover { border-color: #3a4963; background: #202b3d; }
 .dm-conversations { display: grid; align-content: start; gap: 5px; overflow-y: auto; margin: 10px 0 0; padding: 0; list-style: none; }
 .dm-conversation { display: flex; width: 100%; align-items: center; gap: 10px; padding: 10px 9px; border: 1px solid transparent; background: transparent; color: #eff3f8; text-align: left; }
 .dm-conversation:hover { border-color: #3a4963; background: #202b3d; }
@@ -244,3 +245,11 @@ button:hover:not(:disabled) { background: #b1c0c5; }
 .dm-sidebar-footer { display: flex; align-items: center; gap: 10px; margin-top: auto; padding-top: 12px; border-top: 1px solid #303b51; }
 .sidebar-settings-toggle { flex: 1; padding: 10px 12px; border-radius: 9px; background: #202b3d; color: #eff3f8; text-align: left; }
 .dm-leave-circle { display: grid; width: 42px; height: 42px; flex: 0 0 42px; place-items: center; padding: 0; border-radius: 50%; background: #8a4650; color: #fff; font-size: 1.25rem; }
+
+.dm-sidebar .dm-conversation:hover { border-color: #3a4963; background: #202b3d; color: #eff3f8; }
+.dm-sidebar-backdrop:hover, .dm-sidebar-backdrop:focus, .dm-sidebar-backdrop:active { background: #0008; }
+.dm-online-users { flex: 0 0 auto; margin: 4px 0 10px; }
+.dm-online-users summary { padding: 8px 10px; border: 1px solid #303b51; border-radius: 9px; }
+.dm-online-users ul { max-height: min(230px, 40vh); }
+.dm-sidebar-settings .admin-tools { position: static; display: grid; gap: 8px; padding: 10px 12px; border: 1px solid #3a4963; border-radius: 9px; background: #202b3d; color: #eff3f8; }
+.dm-sidebar-settings .admin-tools-menu { position: static; width: 100%; padding: 0; border: 0; background: transparent; box-shadow: none; }
