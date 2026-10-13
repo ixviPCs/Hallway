@@ -48,3 +48,5 @@
 .mobile-page .dm-sidebar { padding-top: calc(18px + env(safe-area-inset-top)); padding-bottom: max(18px, env(safe-area-inset-bottom)); }
 .mobile-page #dm-thread-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .mobile-page .dm-thread-view .identity-block { min-width: 0; }
+
+.mobile-page .room-actions { width: 100%; justify-content: flex-end; gap: 10px; }
