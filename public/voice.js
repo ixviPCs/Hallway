@@ -24,11 +24,14 @@ let deafened = false;
 let isAdmin = false;
 let kickedFromVoice = false;
 let audioContext;
+let adminMuted=false,voiceModeration=null,voiceModerationTimer=null;const voiceModerationScreen=document.createElement("div");voiceModerationScreen.className="timeout-screen";voiceModerationScreen.hidden=true;voiceModerationScreen.innerHTML='<h1>Timed out</h1><p>You cannot view chat or join voice while this timer is active.</p><strong id="voice-timeout-countdown"></strong>';document.body.append(voiceModerationScreen);const voiceModerationBadge=document.createElement("span");voiceModerationBadge.className="moderation-timer";voiceModerationBadge.hidden=true;document.querySelector(".chat-topbar").append(voiceModerationBadge);
 
 if (!name || !deviceId) window.location.replace("/");
 document.querySelector("#voice-identity").textContent = `Voice as ${name}`;
 const hiddenAdminIndicator = document.createElement("span");hiddenAdminIndicator.className="hidden-admin-indicator";hiddenAdminIndicator.hidden=true;hiddenAdminIndicator.setAttribute("role","status");hiddenAdminIndicator.innerHTML='<span class="hidden-admin-dot" aria-hidden="true"></span>Hidden admin in VC';document.querySelector("#voice-identity").after(hiddenAdminIndicator);
 let isInvisible = false;
+function voiceRemaining(until){if(!until)return "forever";const seconds=Math.max(0,Math.ceil((until-Date.now())/1000)),days=Math.floor(seconds/86400),hours=Math.floor(seconds%86400/3600),minutes=Math.floor(seconds%3600/60),rest=seconds%60;return [days&&`${days}d`,hours&&`${hours}h`,minutes&&`${minutes}m`,(!days&&!hours&&!minutes||rest)&&`${rest}s`].filter(Boolean).join(" ")}
+function setVoiceModeration(state){voiceModeration=state?.type?state:null;clearInterval(voiceModerationTimer);voiceModerationTimer=null;adminMuted=voiceModeration?.type==="mute";const timedOut=voiceModeration?.type==="timeout";document.body.classList.toggle("timed-out",timedOut);voiceModerationScreen.hidden=!timedOut;voiceModerationBadge.hidden=!adminMuted;if(timedOut){[stream,cameraStream,screenStream].filter(Boolean).forEach(source=>source.getTracks().forEach(track=>track.stop()));stream=cameraStream=screenStream=undefined;connections.forEach(connection=>connection.close());connections.clear();[muteButton,deafenButton,cameraButton,flipCameraButton,shareScreenButton].forEach(button=>button.disabled=true)}else if(adminMuted){if(stream)stream.getAudioTracks().forEach(track=>track.enabled=false);muteButton.disabled=true;muteButton.textContent="Muted by admin"}else{muteButton.disabled=false;muteButton.textContent=muted?"Unmute":"Mute"}if(!voiceModeration)return;const tick=()=>{if(voiceModeration?.until&&voiceModeration.until<=Date.now()){location.reload();return}const label=voiceRemaining(voiceModeration.until);if(timedOut)document.querySelector("#voice-timeout-countdown").textContent=label;else voiceModerationBadge.textContent=`Muted · ${label}`};tick();voiceModerationTimer=setInterval(tick,1000)}socket.on("moderation state",setVoiceModeration);socket.on("moderation cleared",()=>location.reload());
 
 function applyInvisibleMode(enabled) { isInvisible=!!enabled; const self=participants.get(socket.id); if(self){self.invisible=isInvisible;if(isInvisible)document.querySelector(`[data-participant="${CSS.escape(socket.id)}"]`)?.remove();else addCard(socket.id,self.name,localStorage.getItem("open-chat-avatar")||"",true)}if(isInvisible){stopCamera();stopScreenShare()}[cameraButton,flipCameraButton,shareScreenButton].forEach(button=>{button.disabled=isInvisible});updatePeople() }
 
@@ -419,7 +422,7 @@ async function joinVoice() {
       shareScreenButton.textContent = "Share screen";
       flipCameraButton.hidden = true;
     }
-    stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+    stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });if(adminMuted)stream.getAudioTracks().forEach(track=>track.enabled=false);
     participants.set(socket.id, { id: socket.id, name, invisible:isInvisible });
     if(!isInvisible)addCard(socket.id, name, localStorage.getItem("open-chat-avatar") || "", true);
     monitorAudio(socket.id, stream);
@@ -432,6 +435,7 @@ socket.on("connect", () => socket.emit("join", { mode: "create", deviceId }, (re
   name = result.displayName || result.account?.name || name;
   isAdmin = !!result.account?.admin;
   adminTools.hidden=!isAdmin;
+  if(result.restriction){setVoiceModeration(result.restriction);if(result.restriction.type==="timeout")return}
   document.querySelector("#voice-identity").textContent = `Voice as ${name}`;
   participants.forEach((person, id) => {
     const card = document.querySelector(`[data-participant="${CSS.escape(id)}"]`);

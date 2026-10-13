@@ -259,6 +259,15 @@ button:hover:not(:disabled) { background: #b1c0c5; }
 .remove-profile-avatar { justify-self: center; margin: -4px auto 8px; }
 .profile-dialog form { display: flex; flex-direction: column; }
 .profile-dialog .dialog-avatar-button { align-self: center; }
+.profile-admin-toggle { display: flex; align-items: center; gap: 9px; margin: 14px 0 4px; }
+.profile-admin-toggle input { width: auto; accent-color: #91b8ff; }
+.moderation-duration { margin-bottom: 10px; }
+.moderation-timer { color: #ffce7a; font-size: .72rem; font-weight: 750; white-space: nowrap; }
+.timeout-screen { position: fixed; z-index: 99999; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 16px; padding: 24px; background: #10131a; color: var(--slate-text); text-align: center; }
+.timeout-screen p { color: var(--slate-muted); }
+.timeout-screen strong { color: #ffce7a; font-size: clamp(2rem, 10vw, 4rem); font-variant-numeric: tabular-nums; }
+.chat-panel.timed-out > :not(.timeout-screen) { display: none !important; }
+.voice-page.timed-out .voice-shell { display: none !important; }
 .dm-online-users { flex: 0 0 auto; margin: 4px 0 10px; }
 .dm-online-users summary { padding: 8px 10px; border: 1px solid #303b51; border-radius: 9px; }
 .dm-online-users ul { max-height: min(230px, 40vh); }
