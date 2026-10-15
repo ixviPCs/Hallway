@@ -288,3 +288,8 @@ button:hover:not(:disabled) { background: #b1c0c5; }
 .admin-account-tools li p { margin: 5px 0; }
 .admin-account-tools button { padding: 8px 10px; }
 .admin-account-actions form { display: grid; grid-template-columns: minmax(0, 1fr) auto; }
+
+.dm-sidebar-settings .admin-settings { display: grid; gap: 10px; padding: 10px; border: 1px solid #46546f; border-radius: 10px; background: #182232; }
+.dm-sidebar-settings .admin-settings > h3 { margin: 0; }
+.dm-sidebar-settings .admin-account-tools { margin-top: 0; padding: 0; border: 0; background: transparent; }
+.dm-sidebar-settings .admin-account-tools > h4 { margin: 0; }
