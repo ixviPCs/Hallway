@@ -279,3 +279,12 @@ button:hover:not(:disabled) { background: #b1c0c5; }
 .topbar-online-users ul { top: calc(100% + 5px); right: 0; }
 
 .online-users.topbar-online-users summary::after, .online-users.topbar-online-users[open] summary::after { content: none; }
+
+.admin-account-tools { display: grid; gap: 8px; margin-top: 12px; padding: 10px; border: 1px solid #3a4963; border-radius: 9px; background: #202b3d; color: #eff3f8; }
+.admin-account-tools form, .admin-account-actions { display: grid; gap: 7px; }
+.admin-account-tools h3 { margin: 0; }
+.admin-account-tools ul { display: grid; gap: 10px; margin: 0; padding: 0; list-style: none; }
+.admin-account-tools li { padding: 9px; border: 1px solid #3a4963; border-radius: 8px; overflow-wrap: anywhere; }
+.admin-account-tools li p { margin: 5px 0; }
+.admin-account-tools button { padding: 8px 10px; }
+.admin-account-actions form { display: grid; grid-template-columns: minmax(0, 1fr) auto; }

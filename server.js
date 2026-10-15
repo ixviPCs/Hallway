@@ -11,14 +11,10 @@ const server = http.createServer(app);
 const io = new Server(server, { maxHttpBufferSize: 27 * 1024 * 1024 });
 const PORT = Number(process.env.PORT) || 3000;
 const DATA_FILE = process.env.CHAT_DATA_FILE || path.join(__dirname, "chat-data.json");
-const PIN_INDEX_SECRET_FILE = process.env.PIN_INDEX_SECRET_FILE || path.join(path.dirname(DATA_FILE), ".pin-index-secret");
 const UPLOAD_DIR = process.env.CHAT_UPLOAD_DIR || path.join(__dirname, "uploads");
 const MAX_ATTACHMENTS = 3;
 const MAX_ATTACHMENT_BYTES = 25 * 1024 * 1024;
 function validReactionEmoji(value) { if (typeof value !== "string" || value.length > 32 || !value.trim()) return false; const segments = [...new Intl.Segmenter(undefined, { granularity: "grapheme" }).segment(value)]; return segments.length === 1 && /\p{Extended_Pictographic}/u.test(value); }
-// Keep these outside source control (for example in the Ubuntu service environment).
-// There is deliberately no default admin password.
-const ADMIN_PINS = new Set((process.env.ADMIN_PINS || "").split(",").map((pin) => pin.trim()).filter((pin) => /^[A-Za-z0-9]{4,64}$/.test(pin)));
 const HISTORY_LIMIT = 200;
 const OLDER_HISTORY_LIMIT = 100;
 const MAX_STORED_MESSAGES = 2_000;
@@ -30,11 +26,7 @@ const validPin = (value) => validAccessCode(value);
 const validAvatar = (value) => typeof value === "string" && /^data:image\/(png|jpeg|gif|webp);base64,/i.test(value) && value.length <= 1_400_000 ? value : "";
 const turnUrls = (process.env.TURN_URLS || "").split(",").map((url) => url.trim()).filter(Boolean);
 const turnSecret = process.env.TURN_SHARED_SECRET || "";
-// Caddy must be the only public entry point when this is enabled. It strips any
-// client-supplied forwarding headers and supplies the real remote address.
-const trustProxy = process.env.TRUST_PROXY === "1";
-app.set("trust proxy", trustProxy);
-function load() { try { const data = JSON.parse(fs.readFileSync(DATA_FILE, "utf8")); if (data.version === 2 || data.version === 3) return data; } catch {} return { version: 3, accounts: {}, devices: {}, accessCodes: {}, bans: { account: {}, device: {}, ip: {} }, messages: [] }; }
+function load() { try { const data = JSON.parse(fs.readFileSync(DATA_FILE, "utf8")); if (data.version === 2 || data.version === 3) return data; } catch {} return { version: 3, accounts: {}, devices: {}, accessCodes: {}, bans: { account: {} }, messages: [] }; }
 const data = load();
 if (!Array.isArray(data.directMessages)) data.directMessages = [];
 const invisibleAdmins = new Set();
@@ -42,48 +34,46 @@ const typingSockets = new Map();
 try { fs.mkdirSync(UPLOAD_DIR, { recursive: true }); } catch (error) { console.error("Could not create upload directory:", error.message); }
 if (!data.pinIndex) data.pinIndex = {};
 if (!data.accessCodes) data.accessCodes = {};
-function pinIndexSecret() { if (process.env.PIN_INDEX_SECRET) return process.env.PIN_INDEX_SECRET; try { return fs.readFileSync(PIN_INDEX_SECRET_FILE, "utf8").trim(); } catch {} const secret = crypto.randomBytes(32).toString("hex"); try { fs.writeFileSync(PIN_INDEX_SECRET_FILE, secret, { mode: 0o600 }); } catch (error) { console.error("Could not persist PIN index secret:", error.message); } return secret; }
-const PIN_INDEX_SECRET = pinIndexSecret();
+const hasLegacyBanTargets = !!(data.bans?.device || data.bans?.ip);
+if (!data.bans) data.bans = { account: {} };
+data.bans = { account: data.bans.account || {} };
 let saveDirty = false, saveInProgress = false, saveTimer = null;
 function save() { saveDirty = true; if (!saveInProgress && !saveTimer) saveTimer = setTimeout(flushSave, 75); }
 function flushSave() { saveTimer = null; if (!saveDirty || saveInProgress) return; saveDirty = false; saveInProgress = true; const contents = JSON.stringify(data); fs.writeFile(`${DATA_FILE}.tmp`, contents, (writeError) => { if (writeError) { console.error("Could not save chat data:", writeError.message); saveInProgress = false; if (saveDirty) save(); return; } fs.rename(`${DATA_FILE}.tmp`, DATA_FILE, (renameError) => { if (renameError) console.error("Could not save chat data:", renameError.message); saveInProgress = false; if (saveDirty) save(); }); }); }
+let removedStoredIps = false, removedLegacyBans = false;
+for (const account of Object.values(data.accounts)) if (Object.hasOwn(account, "lastIp")) { delete account.lastIp; removedStoredIps = true; }
+for (const [id, ban] of Object.entries(data.bans.account)) if (!ban || (ban.type || "ban") === "ban") { delete data.bans.account[id]; removedLegacyBans = true; }
+if (hasLegacyBanTargets || removedStoredIps || removedLegacyBans) save();
 if (data.messages.some((message) => Object.hasOwn(message, "avatar"))) { for (const message of data.messages) delete message.avatar; save(); }
-function hashPin(pin) { const salt = crypto.randomBytes(16).toString("hex"); return `${salt}:${crypto.scryptSync(pin, salt, 32).toString("hex")}`; }
+
 function pinMatches(pin, saved) { if (!validPin(pin) || !saved) return false; const [salt, expected] = saved.split(":"); const actual = crypto.scryptSync(pin, salt, 32).toString("hex"); return actual.length === expected.length && crypto.timingSafeEqual(Buffer.from(actual), Buffer.from(expected)); }
-function pinKey(pin) { return crypto.createHmac("sha256", PIN_INDEX_SECRET).update(pin).digest("hex"); }
-function setPin(account, pin) { if (account.pinKey) delete data.pinIndex[account.pinKey]; account.pinHash = hashPin(pin); account.pinKey = pinKey(pin); data.pinIndex[account.pinKey] = account.id; }
+function pinKey(pin) { return crypto.createHash("sha256").update(pin).digest("hex"); }
+function setPin(account, pin) { if (account.pinKey) delete data.pinIndex[account.pinKey]; account.pin = pin; account.pinKey = pinKey(pin); data.pinIndex[account.pinKey] = account.id; }
 function profile(account) { return { id: account.id, name: account.name, nickname: account.nickname || "", bio: account.bio || "", avatar: account.avatar || "", admin: !!account.admin }; }
 const shownName = (account) => account.nickname || account.name;
 const findName = (name) => Object.values(data.accounts).find((item) => item.name.toLowerCase() === name.toLowerCase());
-function findPin(pin) { if (!validPin(pin)) return null; const key = pinKey(pin); const indexed = data.accounts[data.pinIndex[key]]; if (indexed && pinMatches(pin, indexed.pinHash)) return indexed; const account = Object.values(data.accounts).find((item) => pinMatches(pin, item.pinHash)); if (account) { account.pinKey = key; data.pinIndex[key] = account.id; save(); } return account; }
+function findPin(pin) { if (!validPin(pin)) return null; const key = pinKey(pin); const indexed = data.accounts[data.pinIndex[key]]; if (indexed && (indexed.pin === pin || pinMatches(pin, indexed.pinHash))) return indexed; const account = Object.values(data.accounts).find((item) => item.pin === pin || pinMatches(pin, item.pinHash)); if (account) { account.pin = pin; delete account.pinHash; account.pinKey = key; data.pinIndex[key] = account.id; save(); } return account; }
 function findAccessCode(code) {
   if (!validAccessCode(code)) return null;
   const key = pinKey(code);
   const record = data.accessCodes[key];
-  if (record && pinMatches(code, record.hash)) return record;
+  if (record && (record.code === code || pinMatches(code, record.hash))) { record.code = code; delete record.hash; return record; }
+  const legacyRecord = Object.values(data.accessCodes).find((item) => item.code === code || pinMatches(code, item.hash));
+  if (legacyRecord) { legacyRecord.code = code; delete legacyRecord.hash; save(); return legacyRecord; }
   // Accounts created before the whitelist change use their existing PIN as a legacy code.
   const legacyAccount = findPin(code);
   return legacyAccount ? { accountId: legacyAccount.id, legacy: true } : null;
 }
 function createAccessCode(code, admin) {
   const key = pinKey(code);
-  if (data.accessCodes[key] || findPin(code)) return null;
-  data.accessCodes[key] = { hash: hashPin(code), createdAt: Date.now(), admin: !!admin, accountId: "" };
+  if (data.accessCodes[key] || findPin(code) || Object.values(data.accessCodes).some((item) => item.code === code || pinMatches(code, item.hash))) return null;
+  data.accessCodes[key] = { code, createdAt: Date.now(), admin: !!admin, accountId: "" };
   return data.accessCodes[key];
 }
-function generateAccessCode() { let code; do code = crypto.randomBytes(8).toString("base64url").replace(/[^A-Za-z0-9]/g, "").slice(0, 10).toUpperCase(); while (data.accessCodes[pinKey(code)] || findPin(code)); return code; }
-function accountHasAccess(account) { return !!account && (!account.accessCodeKey || data.accessCodes[account.accessCodeKey]?.accountId === account.id); }
+function generateAccessCode() { let code; do code = crypto.randomBytes(8).toString("base64url").replace(/[^A-Za-z0-9]/g, "").slice(0, 10).toUpperCase(); while (data.accessCodes[pinKey(code)] || findPin(code) || Object.values(data.accessCodes).some((item) => item.code === code || pinMatches(code, item.hash))); return code; }
+function accountHasAccess(account) { return !!account && account.accessCodeKey !== null && (!account.accessCodeKey || data.accessCodes[account.accessCodeKey]?.accountId === account.id); }
 function guestName() { let name; do name = `gues-${crypto.randomInt(100, 1000)}`; while (findName(name)); return name; }
-function normalizedIp(value) { const ip = String(value || "").trim().toLowerCase().replace(/^\[|\]$/g, "").replace(/^::ffff:/, ""); return ip && ip.length <= 64 ? ip : ""; }
-function isBanableIp(ip) { if (!ip || ip === "::1" || ip === "0.0.0.0" || ip === "::") return false; if (/^(127\.|10\.|192\.168\.|169\.254\.|0\.)/.test(ip)) return false; if (/^172\.(1[6-9]|2\d|3[01])\./.test(ip)) return false; return !/^(fc|fd|fe80:)/.test(ip); }
-const ipOf = (socket) => {
-  // Only trust forwarded headers when the Node port is reachable exclusively through a trusted proxy.
-  const forwarded = trustProxy ? socket.handshake.headers["cf-connecting-ip"] || socket.handshake.headers["x-forwarded-for"]?.split(",")[0] : "";
-  return normalizedIp(forwarded || socket.handshake.address);
-};
-function pruneBans() { let dirty = false; for (const set of Object.values(data.bans)) for (const [key, ban] of Object.entries(set)) if (ban.until && ban.until <= Date.now()) { delete set[key]; dirty = true; } if (dirty) save(); }
-function getBan(kind, target) { const ban = data.bans[kind][target]; return ban && (!ban.until || ban.until > Date.now()) ? ban : null; }
-function currentRestriction(socket, device, account) { pruneBans(); const matches = [getBan("ip", ipOf(socket)), device && getBan("device", device), account && getBan("account", account)].filter(Boolean); return matches.find((item) => (item.type || "ban") === "ban") || matches.find((item) => item.type === "timeout") || matches.find((item) => item.type === "mute") || null; }
+function currentRestriction(socket, device, account) { const ban = data.bans?.account?.[account]; if (!ban || !["timeout", "mute"].includes(ban.type)) return null; if (ban.until && ban.until <= Date.now()) { delete data.bans.account[account]; save(); return null; } return ban; }
 function banError(ban) { const action = (ban.type || "ban") === "timeout" ? "timed out" : "banned"; return `You are ${action}${ban.until ? ` until ${new Date(ban.until).toLocaleString()}` : " permanently"}.`; }
 function durationUntil(value, type) { const text = typeof value === "string" ? value.trim().toLowerCase() : ""; if (text === "forever") return type === "ban" ? { valid: true, until: null } : { valid: false }; const match = /^(\d+)(s|m|h|d)$/.exec(text); if (!match) return { valid: false }; const amount = Number(match[1]), unit = { s: 1000, m: 60000, h: 3600000, d: 86400000 }[match[2]], duration = amount * unit; if (!Number.isSafeInteger(amount) || amount < 1 || !Number.isSafeInteger(duration) || duration > 3650 * 86400000) return { valid: false }; return { valid: true, until: Date.now() + duration }; }
 function clearModeration() { for (const set of Object.values(data.bans)) for (const key of Object.keys(set)) delete set[key]; save(); for (const peer of io.sockets.sockets.values()) { const active = peer.data.activeModeration; if (!active) continue; peer.data.activeModeration = null; if (active.type === "timeout") { peer.join(`account:${peer.data.accountId}`); peer.join("chat"); } peer.emit("moderation cleared"); } }
@@ -122,40 +112,7 @@ app.use("/uploads", express.static(UPLOAD_DIR));
 app.use("/vendor/emoji-picker", express.static(path.join(__dirname, "node_modules", "emoji-picker-element")));
 app.use("/vendor/emoji-picker-data", express.static(path.join(__dirname, "node_modules", "emoji-picker-element-data")));
 app.use(express.json({ limit: "16kb" }));
-function isAdminPin(pin) { return typeof pin === "string" && ADMIN_PINS.has(pin); }
-function adminCodes() { return Object.entries(data.accessCodes).map(([id, item]) => ({ id, createdAt: item.createdAt, admin: !!item.admin, used: !!item.accountId, accountId: item.accountId || "" })).sort((a, b) => b.createdAt - a.createdAt); }
-app.get("/api/admin/accounts", (req, res) => {
-  if (!isAdminPin(req.get("x-admin-pin"))) return res.status(401).json({ ok: false, error: "Admin access is required." });
-  res.json({ ok: true, accounts: Object.values(data.accounts).map((account) => ({ id: account.id, name: account.name, nickname: account.nickname || "", admin: !!account.admin, createdAt: account.createdAt || 0 })).sort((a, b) => a.name.localeCompare(b.name)) });
-});
-app.delete("/api/admin/moderation", (req, res) => {
-  if (!isAdminPin(req.get("x-admin-pin"))) return res.status(401).json({ ok: false, error: "Admin access is required." });
-  clearModeration(); res.json({ ok: true });
-});
-app.get("/api/admin/access-codes", (req, res) => {
-  if (!isAdminPin(req.get("x-admin-pin"))) return res.status(401).json({ ok: false, error: "Admin access is required." });
-  res.json({ ok: true, codes: adminCodes() });
-});
-app.post("/api/admin/access-codes", (req, res) => {
-  if (!isAdminPin(req.get("x-admin-pin"))) return res.status(401).json({ ok: false, error: "Admin access is required." });
-  const requested = clean(req.body?.code, 64).replace(/\s/g, "");
-  const code = requested || generateAccessCode();
-  if (!validAccessCode(code)) return res.status(400).json({ ok: false, error: "Codes must be 4–64 letters or numbers." });
-  const record = createAccessCode(code, req.body?.admin === true);
-  if (!record) return res.status(409).json({ ok: false, error: "That code is already in use." });
-  save();
-  res.status(201).json({ ok: true, code, record: { createdAt: record.createdAt, admin: record.admin } });
-});
-app.delete("/api/admin/access-codes/:id", (req, res) => {
-  if (!isAdminPin(req.get("x-admin-pin"))) return res.status(401).json({ ok: false, error: "Admin access is required." });
-  const code = data.accessCodes[req.params.id];
-  if (!code) return res.status(404).json({ ok: false, error: "Code not found." });
-  delete data.accessCodes[req.params.id]; save(); res.json({ ok: true });
-  for (const other of socketsFor(code.accountId)) other.disconnect(true);
-});
 io.use((socket, next) => {
-  const restriction = getBan("ip", ipOf(socket));
-  if (restriction && (restriction.type || "ban") === "ban") return next(new Error(banError(restriction)));
   next();
 });
 io.on("connection", (socket) => {
@@ -170,7 +127,6 @@ io.on("connection", (socket) => {
   });
   socket.on("join", (request, acknowledge) => {
     const deviceId = validDevice(request?.deviceId); if (!deviceId) return acknowledge?.({ ok: false, error: "This browser could not create a device ID." });
-    const initialRestriction = currentRestriction(socket, deviceId); if (initialRestriction && (initialRestriction.type || "ban") === "ban") return acknowledge?.({ ok: false, error: banError(initialRestriction) });
     let account = data.accounts[data.devices[deviceId]]; let created = false;
     if (account && !accountHasAccess(account)) return acknowledge?.({ ok: false, error: "Your access code was revoked." });
     if (!account) {
@@ -182,20 +138,24 @@ io.on("connection", (socket) => {
       // always returns to that profile on another device.
       const needsProfile = !account;
       if (needsProfile) {
-        account = { id: randomUUID(), name: guestName(), nickname: "", bio: "", avatar: "", admin: !!access.admin, accessCodeKey: access.legacy ? "" : pinKey(code), createdAt: Date.now() };
+        account = { id: randomUUID(), name: guestName(), nickname: "", bio: "", avatar: "", admin: !!access.admin, accessCodeKey: access.legacy ? "" : Object.keys(data.accessCodes).find((key) => data.accessCodes[key] === access) || pinKey(code), accessCode: code, createdAt: Date.now() };
         data.accounts[account.id] = account;
         if (!access.legacy) data.accessCodes[account.accessCodeKey].accountId = account.id;
       }
-      data.devices[deviceId] = account.id; created = needsProfile;
+      account.accessCode ||= code; data.devices[deviceId] = account.id; created = needsProfile;
     }
-    if (!account) return acknowledge?.({ ok: false, error: "This device has no available account." }); const restriction = currentRestriction(socket, deviceId, account.id); if (restriction && (restriction.type || "ban") === "ban") return acknowledge?.({ ok: false, error: banError(restriction) });
-    socket.data.accountId = account.id; socket.data.deviceId = deviceId; socket.data.visibility = "online"; account.lastIp = ipOf(socket); socket.data.activeModeration = restriction?.type ? { type: restriction.type, until: restriction.until } : null; if (restriction?.type !== "timeout") { socket.join(`account:${account.id}`); socket.join("chat"); } save(); acknowledge?.({ ok: true, account: profile(account), displayName: shownName(account), created, restriction: restriction?.type ? { type: restriction.type, until: restriction.until } : null });
+    if (!account) return acknowledge?.({ ok: false, error: "This device has no available account." }); const restriction = currentRestriction(socket, deviceId, account.id);
+    socket.data.accountId = account.id; socket.data.deviceId = deviceId; socket.data.visibility = "online"; socket.data.activeModeration = restriction?.type ? { type: restriction.type, until: restriction.until } : null; if (restriction?.type !== "timeout") { socket.join(`account:${account.id}`); socket.join("chat"); } save(); acknowledge?.({ ok: true, account: profile(account), displayName: shownName(account), created, restriction: restriction?.type ? { type: restriction.type, until: restriction.until } : null });
     if (restriction?.type === "timeout") { broadcastPresence(); return; }
     setImmediate(() => { if (!socket.connected || socket.data.accountId !== account.id) return; socket.emit("history", recentHistory(!!account.admin)); socket.emit("typing users", currentTypingUsers()); broadcastPresence(); });
   });
   socket.on("typing", (isTyping) => { const account = mustSpeak(socket); if (!account || !socket.rooms.has("chat")) return; if (isTyping !== true) return stopTyping(socket.id); const current = typingSockets.get(socket.id); if (current) clearTimeout(current.timer); const alreadyTyping = [...typingSockets.values()].some((item) => item.accountId === account.id); const timer = setTimeout(() => stopTyping(socket.id), 4000); typingSockets.set(socket.id, { accountId: account.id, timer }); if (!alreadyTyping) broadcastTyping(); });
-  socket.on("get profile", (id, acknowledge) => { const viewer = mustUser(socket, acknowledge), account = data.accounts[id]; if (!viewer) return; if (!account) return acknowledge?.({ ok: false, error: "Profile not found." }); const result = { ok: true, profile: profile(account) }; if (viewer.admin) { const ip = socketsFor(id).map(ipOf)[0] || ""; const shared = Object.values(data.accounts).some((item) => item.id !== id && item.lastIp === ip); result.moderationTargets = { device: Object.entries(data.devices).filter(([, accountId]) => accountId === id).map(([deviceId]) => deviceId)[0] || "", ip: isBanableIp(ip) && !shared ? ip : "" }; } acknowledge?.(result); });
+  socket.on("get profile", (id, acknowledge) => { const viewer = mustUser(socket, acknowledge), account = data.accounts[id]; if (!viewer) return; if (!account) return acknowledge?.({ ok: false, error: "Profile not found." }); const result = { ok: true, profile: profile(account) }; acknowledge?.(result); });
   socket.on("load older messages", (request, acknowledge) => { const actor = mustUser(socket, acknowledge); if (!actor) return; const limit = Math.max(1, Math.min(100, Number(request?.limit) || OLDER_HISTORY_LIMIT)); acknowledge?.({ ok: true, ...olderHistory(request?.beforeId, !!actor.admin, limit) }); });
+  socket.on("admin get accounts", acknowledge => { const admin = mustAdmin(socket, acknowledge); if (!admin) return; acknowledge?.({ ok: true, accounts: Object.values(data.accounts).map(account => ({ id: account.id, name: account.name, nickname: account.nickname || "", code: account.accessCode || "", accessRevoked: account.accessCodeKey === null, admin: !!account.admin, createdAt: account.createdAt || 0 })).sort((a, b) => a.name.localeCompare(b.name)) }); });
+  socket.on("admin revoke account code", (accountId, acknowledge) => { const admin = mustAdmin(socket, acknowledge), target = data.accounts[accountId]; if (!admin) return; if (!target) return acknowledge?.({ ok: false, error: "Account not found." }); if (target.admin && Object.values(data.accounts).filter(item => item.admin).length < 2) return acknowledge?.({ ok: false, error: "You cannot revoke the last admin account." }); if (target.accessCodeKey) delete data.accessCodes[target.accessCodeKey]; if (target.pinKey) delete data.pinIndex[target.pinKey]; target.accessCodeKey = null; delete target.pin; delete target.pinHash; delete target.pinKey; for (const client of socketsFor(target.id)) client.disconnect(true); save(); acknowledge?.({ ok: true }); });
+  socket.on("admin create access code", (request, acknowledge) => { const admin = mustAdmin(socket, acknowledge); if (!admin) return; const code = clean(request?.code, 64).replace(/\s/g, "") || generateAccessCode(); if (!validAccessCode(code)) return acknowledge?.({ ok: false, error: "Codes must be 4–64 letters or numbers." }); const record = createAccessCode(code, request?.admin === true); if (!record) return acknowledge?.({ ok: false, error: "That code is already in use." }); save(); acknowledge?.({ ok: true, code }); });
+  socket.on("admin set account code", (request, acknowledge) => { const admin = mustAdmin(socket, acknowledge); if (!admin) return; const target = data.accounts[request?.accountId], code = clean(request?.code, 64).replace(/\s/g, ""); if (!target) return acknowledge?.({ ok: false, error: "Account not found." }); if (!validAccessCode(code)) return acknowledge?.({ ok: false, error: "Codes must be 4–64 letters or numbers." }); if (Object.values(data.accounts).some(account => account.id !== target.id && account.accessCode === code) || Object.values(data.accessCodes).some(record => (record.code === code || pinMatches(code, record.hash)) && record.accountId !== target.id)) return acknowledge?.({ ok: false, error: "That code is already in use." }); if (target.accessCodeKey && data.accessCodes[target.accessCodeKey]) delete data.accessCodes[target.accessCodeKey]; if (target.pinKey) delete data.pinIndex[target.pinKey]; if (target.pinKey) delete data.pinIndex[target.pinKey]; target.accessCode = code; target.accessCodeKey = pinKey(code); target.pin = code; delete target.pinHash; delete target.pinHash; target.pinKey = target.accessCodeKey; data.pinIndex[target.pinKey] = target.id; data.accessCodes[target.accessCodeKey] = { code, createdAt: Date.now(), admin: !!target.admin, accountId: target.id }; save(); acknowledge?.({ ok: true }); });
   socket.on("get dm contacts", (acknowledge) => { const actor = mustUser(socket, acknowledge); if (!actor) return; acknowledge?.({ ok: true, contacts: Object.values(data.accounts).filter((item) => item.id !== actor.id && accountHasAccess(item)).map(profile).sort((a, b) => shownName(a).localeCompare(shownName(b))) }); });
   socket.on("get dm inbox", (acknowledge) => { const actor = mustUser(socket, acknowledge); if (!actor) return; const latest = new Map(), wantedReadIds = new Set(Object.values(actor.dmReadId || {})), idIndexes = new Map(); data.directMessages.forEach((message, index) => { if (!message) return; if (wantedReadIds.has(message.id)) idIndexes.set(message.id, index); if (message.fromId !== actor.id && message.toId !== actor.id) return; const peerId = message.fromId === actor.id ? message.toId : message.fromId; const prior = latest.get(peerId); if (!prior || message.timestamp >= prior.timestamp) latest.set(peerId, message); }); const readIndexes = new Map(); for (const peerId of latest.keys()) { const readId = actor.dmReadId?.[peerId]; readIndexes.set(peerId, readId ? (idIndexes.get(readId) ?? -1) : -1); } const unreadCounts = new Map(); data.directMessages.forEach((message, index) => { if (!message || message.toId !== actor.id || !latest.has(message.fromId)) return; const peerId = message.fromId, readIndex = readIndexes.get(peerId), readAt = actor.dmReadAt?.[peerId] || 0; if (readIndex >= 0 ? index > readIndex : message.timestamp > readAt) unreadCounts.set(peerId, (unreadCounts.get(peerId) || 0) + 1); }); const conversations = [...latest].map(([peerId, lastMessage]) => { const peer = data.accounts[peerId]; if (!peer || !accountHasAccess(peer)) return null; return { peer: profile(peer), timestamp: lastMessage.timestamp, preview: lastMessage.text || (lastMessage.attachments?.length ? "Attachment" : ""), unread: unreadCounts.get(peerId) || 0 }; }).filter(Boolean).sort((a, b) => b.timestamp - a.timestamp); acknowledge?.({ ok: true, conversations }); });
   socket.on("load older direct messages", (request, acknowledge) => { const actor = mustUser(socket, acknowledge); const peer = typeof request?.peerId === "string" ? data.accounts[request.peerId] : null; if (!actor || !peer || peer.id === actor.id || !accountHasAccess(peer)) return acknowledge?.({ ok: false, error: "Choose a valid conversation." }); const conversation = data.directMessages.filter(m => (m.fromId === actor.id && m.toId === peer.id) || (m.fromId === peer.id && m.toId === actor.id)).filter(m => !m.deletedAt || actor.admin); const boundary = conversation.findIndex(m => m.id === request?.beforeId); if (boundary <= 0) return acknowledge?.({ ok: true, messages: [], hasMore: false }); const limit = Math.max(1, Math.min(100, Number(request?.limit) || OLDER_HISTORY_LIMIT)); const prior = conversation.slice(0, boundary), page = prior.slice(-limit); acknowledge?.({ ok: true, messages: page.map(dmView), hasMore: prior.length > page.length }); });
@@ -220,13 +180,12 @@ io.on("connection", (socket) => {
   socket.on("permanently delete message", ({ id }, acknowledge) => { const admin = mustAdmin(socket, acknowledge); if (!admin) return; const index = data.messages.findIndex((item) => item.id === id && item.deletedAt); if (index < 0) return acknowledge?.({ ok: false, error: "Deleted message could not be found." }); const [removed] = data.messages.splice(index, 1); removeAttachments(removed); save(); io.to("chat").emit("message permanently deleted", id); acknowledge?.({ ok: true }); });
   socket.on("toggle reaction", ({ id, emoji }, acknowledge) => { const actor = mustUser(socket, acknowledge); const message = actor && data.messages.find((item) => item.id === id && !item.deletedAt); if (!message || !validReactionEmoji(emoji)) return acknowledge?.({ ok: false, error: "Choose one emoji from the reaction menu." }); message.reactions ||= {}; const users = Array.isArray(message.reactions[emoji]) ? message.reactions[emoji] : []; const existing = users.indexOf(actor.id); if (existing >= 0) users.splice(existing, 1); else users.push(actor.id); if (users.length) message.reactions[emoji] = users; else delete message.reactions[emoji]; save(); io.to("chat").emit("message reactions", { id, reactions: view(message).reactions }); acknowledge?.({ ok: true }); });
   socket.on("remove reaction", ({ id, emoji, accountId }, acknowledge) => { const admin = mustAdmin(socket, acknowledge); const message = admin && data.messages.find((item) => item.id === id); if (!message || typeof emoji !== "string" || typeof accountId !== "string") return acknowledge?.({ ok: false, error: "Reaction could not be removed." }); const users = message.reactions?.[emoji]; if (!Array.isArray(users) || !users.includes(accountId)) return acknowledge?.({ ok: false, error: "Reaction could not be removed." }); message.reactions[emoji] = users.filter((userId) => userId !== accountId); if (!message.reactions[emoji].length) delete message.reactions[emoji]; save(); io.to("chat").emit("message reactions", { id, reactions: view(message).reactions }); acknowledge?.({ ok: true }); });
-  socket.on("moderate", (request, acknowledge) => { const admin = mustAdmin(socket, acknowledge); if (!admin) return; const kind = request?.kind, target = request?.target, type = request?.type; const duration = durationUntil(request?.duration, type); if (!["account", "device", "ip"].includes(kind) || !["timeout", "mute", "ban"].includes(type) || typeof target !== "string" || !target || !duration.valid) return acknowledge?.({ ok: false, error: "Choose timeout, mute, or ban and enter a duration such as 30s, 10m, 2h, 7d, or forever for a permanent ban." }); if (kind === "ip") { if (!isBanableIp(target)) return acknowledge?.({ ok: false, error: "This is a proxy, local-network, or otherwise unsafe IP address. It cannot be moderated by IP." }); const shared = Object.values(data.accounts).some((item) => item.id !== request.accountId && item.lastIp === target); if (shared) return acknowledge?.({ ok: false, error: "That IP address is shared by another account, so it cannot be moderated by IP." }); } data.bans[kind][target] = { type, until: duration.until, by: admin.id, createdAt: Date.now() }; save(); acknowledge?.({ ok: true }); for (const other of io.sockets.sockets.values()) { const applies = (kind === "account" && other.data.accountId === target) || (kind === "device" && other.data.deviceId === target) || (kind === "ip" && ipOf(other) === target); if (!applies) continue; const active = currentRestriction(other, other.data.deviceId, other.data.accountId); if (!active) continue; if ((active.type || "ban") === "ban") { other.disconnect(true); continue; } const previous = other.data.activeModeration; stopTyping(other.id); other.data.activeModeration = { type: active.type, until: active.until }; if (active.type === "timeout") { other.leave("chat"); other.leave(`account:${other.data.accountId}`); removeFromVoiceForModeration(other); } else if (previous?.type === "timeout") { other.join(`account:${other.data.accountId}`); other.join("chat"); other.emit("history", recentHistory(!!data.accounts[other.data.accountId]?.admin)); } other.emit("moderation state", { type: active.type, until: active.until }); } });
-  socket.on("delete account", (accountId, acknowledge) => { const admin = mustAdmin(socket, acknowledge); const target = typeof accountId === "string" ? data.accounts[accountId] : null; if (!admin) return; if (!target) return acknowledge?.({ ok: false, error: "Account not found." }); if (target.id === admin.id) return acknowledge?.({ ok: false, error: "You cannot delete your own account." }); if (target.admin && Object.values(data.accounts).filter((account) => account.admin).length < 2) return acknowledge?.({ ok: false, error: "You cannot delete the last admin account." }); for (const [deviceId, ownerId] of Object.entries(data.devices)) if (ownerId === target.id) delete data.devices[deviceId]; if (target.pinKey) delete data.pinIndex[target.pinKey]; delete data.bans.account[target.id]; const removed = data.messages.filter((message) => message.authorId === target.id); removed.forEach(removeAttachments); data.messages = data.messages.filter((message) => message.authorId !== target.id); data.directMessages.filter((message) => message.fromId === target.id || message.toId === target.id).forEach(removeAttachments); data.directMessages = data.directMessages.filter((message) => message.fromId !== target.id && message.toId !== target.id); delete data.accounts[target.id]; save(); for (const other of socketsFor(target.id)) other.disconnect(true); io.to("chat").emit("account deleted", target.id); broadcastPresence(); acknowledge?.({ ok: true }); });
+  socket.on("delete account", (accountId, acknowledge) => { const admin = mustAdmin(socket, acknowledge); const target = typeof accountId === "string" ? data.accounts[accountId] : null; if (!admin) return; if (!target) return acknowledge?.({ ok: false, error: "Account not found." }); if (target.admin && Object.values(data.accounts).filter((account) => account.admin).length < 2) return acknowledge?.({ ok: false, error: "You cannot delete the last admin account." }); for (const [deviceId, ownerId] of Object.entries(data.devices)) if (ownerId === target.id) delete data.devices[deviceId]; if (target.pinKey) delete data.pinIndex[target.pinKey]; delete data.bans.account[target.id]; const removed = data.messages.filter((message) => message.authorId === target.id); removed.forEach(removeAttachments); data.messages = data.messages.filter((message) => message.authorId !== target.id); data.directMessages.filter((message) => message.fromId === target.id || message.toId === target.id).forEach(removeAttachments); data.directMessages = data.directMessages.filter((message) => message.fromId !== target.id && message.toId !== target.id); if (target.accessCodeKey) delete data.accessCodes[target.accessCodeKey]; delete data.accounts[target.id]; save(); acknowledge?.({ ok: true }); for (const other of socketsFor(target.id)) other.disconnect(true); io.to("chat").emit("account deleted", target.id); broadcastPresence(); });
   socket.on("presence state", (state) => { if (socket.data.accountId) { socket.data.visibility = state === "away" ? "away" : "online"; broadcastPresence(); } }); socket.on("leave chat", () => socket.disconnect(true));
   socket.on("get admin invisible", (acknowledge) => { const account = mustAdmin(socket, acknowledge); if (account) acknowledge?.({ ok: true, invisible: invisibleAdmins.has(account.id) }); });
   socket.on("set admin invisible", (enabled, acknowledge) => { const account = mustAdmin(socket, acknowledge); if (!account) return; if (typeof enabled !== "boolean") return acknowledge?.({ ok: false, error: "Invalid visibility setting." }); if (enabled) invisibleAdmins.add(account.id); else invisibleAdmins.delete(account.id); const hidden = enabled; for (const peerId of io.sockets.adapter.rooms.get("voice") || []) { const peerSocket = io.sockets.sockets.get(peerId); if (peerSocket?.data.accountId !== account.id) continue; io.to("voice").emit("voice participant visibility", hidden ? { id: peerId, invisible: true } : { id: peerId, invisible: false, name: shownName(account), avatar: account.avatar || "" }); } broadcastPresence(); broadcastHiddenAdminPresence(); io.to(`account:${account.id}`).emit("admin invisible state", { enabled }); acknowledge?.({ ok: true, invisible: enabled }); });
   socket.on("voice config", (acknowledge) => { const account = mustUser(socket, acknowledge); if (account) acknowledge?.({ ok: true, iceServers: voiceIceServers(account) }); });
-  socket.on("voice join", (_, acknowledge) => { const account = mustUser(socket, acknowledge); if (!account) return; if (voiceAccounts().has(account.id)) return acknowledge?.({ ok: false, error: "You are already in voice chat in another tab." }); const invisible = !!account.admin && invisibleAdmins.has(account.id); const peers = voiceParticipants(); socket.join("voice"); socket.emit("voice participants", peers); socket.to("voice").emit("voice participant joined", invisible ? { id: socket.id, invisible: true } : { id: socket.id, name: shownName(account), avatar: account.avatar || "", invisible: false }); broadcastPresence(); broadcastHiddenAdminPresence(); acknowledge?.({ ok: true, name: shownName(account), invisible }); });
+  socket.on("voice join", (_, acknowledge) => { const account = mustUser(socket, acknowledge); if (!account) return; for (const id of [...(io.sockets.adapter.rooms.get("voice") || [])]) { const previous = io.sockets.sockets.get(id); if (!previous || previous.id === socket.id || previous.data.accountId !== account.id) continue; previous.emit("voice kicked", { message: "Voice moved to another tab." }); previous.to("voice").emit("voice participant left", previous.id); previous.leave("voice"); } const invisible = !!account.admin && invisibleAdmins.has(account.id); const peers = voiceParticipants(); socket.join("voice"); socket.emit("voice participants", peers); socket.to("voice").emit("voice participant joined", invisible ? { id: socket.id, invisible: true } : { id: socket.id, name: shownName(account), avatar: account.avatar || "", invisible: false }); broadcastPresence(); broadcastHiddenAdminPresence(); acknowledge?.({ ok: true, name: shownName(account), invisible }); });
   socket.on("voice kick", (targetId, acknowledge) => {
     const admin = mustAdmin(socket, acknowledge); if (!admin) return;
     if (!socket.rooms.has("voice")) return acknowledge?.({ ok: false, error: "Join voice chat before removing someone." });
