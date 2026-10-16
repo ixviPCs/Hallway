@@ -295,3 +295,7 @@ button:hover:not(:disabled) { background: #b1c0c5; }
 .dm-sidebar-settings .admin-account-tools { margin-top: 0; padding: 0; border: 0; background: transparent; }
 .dm-sidebar-settings .admin-account-tools > h4 { margin: 0; }
 .dm-sidebar-settings #settings-main-view { display: grid; gap: 10px; }
+
+.deleted-message-admin-actions { display: flex; flex-wrap: wrap; gap: 7px; margin-top: 6px; }
+.deleted-message-admin-actions .permanent-delete-action { margin-top: 0; }
+.restore-message-action { border-color: #4d8b70; color: #b9f1d0; }
