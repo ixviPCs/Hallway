@@ -288,6 +288,9 @@ button:hover:not(:disabled) { background: #b1c0c5; }
 .admin-account-tools li p { margin: 5px 0; }
 .admin-account-tools button { padding: 8px 10px; }
 .admin-account-actions form { display: grid; grid-template-columns: minmax(0, 1fr) auto; }
+.admin-account-actions .admin-moderation-form { grid-template-columns: minmax(0, 1fr) minmax(58px, .7fr) auto; align-items: stretch; }
+.admin-account-actions .admin-moderation-form select, .admin-account-actions .admin-moderation-form input { min-width: 0; }
+.admin-moderation-status { color: #ffce7a; font-size: .82rem; }
 
 .dm-sidebar-settings .admin-settings { display: grid; gap: 10px; }
 .dm-sidebar-settings .admin-settings > h3 { margin: 0; }

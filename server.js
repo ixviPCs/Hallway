@@ -153,7 +153,39 @@ io.on("connection", (socket) => {
   socket.on("typing", (isTyping) => { const account = mustSpeak(socket); if (!account || !socket.rooms.has("chat")) return; if (isTyping !== true) return stopTyping(socket.id); const current = typingSockets.get(socket.id); if (current) clearTimeout(current.timer); const alreadyTyping = [...typingSockets.values()].some((item) => item.accountId === account.id); const timer = setTimeout(() => stopTyping(socket.id), 4000); typingSockets.set(socket.id, { accountId: account.id, timer }); if (!alreadyTyping) broadcastTyping(); });
   socket.on("get profile", (id, acknowledge) => { const viewer = mustUser(socket, acknowledge), account = data.accounts[id]; if (!viewer) return; if (!account) return acknowledge?.({ ok: false, error: "Profile not found." }); const result = { ok: true, profile: profile(account) }; acknowledge?.(result); });
   socket.on("load older messages", (request, acknowledge) => { const actor = mustUser(socket, acknowledge); if (!actor) return; const limit = Math.max(1, Math.min(100, Number(request?.limit) || OLDER_HISTORY_LIMIT)); acknowledge?.({ ok: true, ...olderHistory(request?.beforeId, !!actor.admin, limit) }); });
-  socket.on("admin get accounts", acknowledge => { const admin = mustAdmin(socket, acknowledge); if (!admin) return; acknowledge?.({ ok: true, accounts: Object.values(data.accounts).map(account => ({ id: account.id, name: account.name, nickname: account.nickname || "", code: account.accessCode || "", accessRevoked: account.accessCodeKey === null, admin: !!account.admin, createdAt: account.createdAt || 0 })).sort((a, b) => a.name.localeCompare(b.name)) }); });
+  socket.on("admin get accounts", acknowledge => { const admin = mustAdmin(socket, acknowledge); if (!admin) return; acknowledge?.({ ok: true, accounts: Object.values(data.accounts).map(account => ({ id: account.id, name: account.name, nickname: account.nickname || "", code: account.accessCode || "", accessRevoked: account.accessCodeKey === null, admin: !!account.admin, createdAt: account.createdAt || 0, restriction: currentRestriction(null, null, account.id) })).sort((a, b) => a.name.localeCompare(b.name)) }); });
+  socket.on("admin moderate account", (request, acknowledge) => {
+    const admin = mustAdmin(socket, acknowledge), target = data.accounts[request?.accountId];
+    if (!admin) return;
+    if (!target) return acknowledge?.({ ok: false, error: "Account not found." });
+    if (request?.type === "clear") {
+      delete data.bans.account[target.id];
+      save();
+      for (const peer of socketsFor(target.id)) {
+        const active = peer.data.activeModeration;
+        peer.data.activeModeration = null;
+        if (active?.type === "timeout") { peer.join(`account:${target.id}`); peer.join("chat"); }
+        peer.emit("moderation cleared");
+      }
+      return acknowledge?.({ ok: true });
+    }
+    if (!["timeout", "mute"].includes(request?.type)) return acknowledge?.({ ok: false, error: "Choose timeout or mute." });
+    const duration = durationUntil(request?.duration, request.type);
+    if (!duration.valid) return acknowledge?.({ ok: false, error: "Enter a duration such as 30s, 10m, 2h, or 7d." });
+    const restriction = { type: request.type, until: duration.until };
+    data.bans.account[target.id] = restriction;
+    save();
+    for (const peer of socketsFor(target.id)) {
+      peer.data.activeModeration = restriction;
+      if (restriction.type === "timeout") {
+        peer.leave("chat");
+        peer.leave(`account:${target.id}`);
+        removeFromVoiceForModeration(peer);
+      }
+      peer.emit("moderation state", restriction);
+    }
+    acknowledge?.({ ok: true, restriction });
+  });
   socket.on("admin revoke account code", (accountId, acknowledge) => { const admin = mustAdmin(socket, acknowledge), target = data.accounts[accountId]; if (!admin) return; if (!target) return acknowledge?.({ ok: false, error: "Account not found." }); if (target.admin && Object.values(data.accounts).filter(item => item.admin).length < 2) return acknowledge?.({ ok: false, error: "You cannot revoke the last admin account." }); if (target.accessCodeKey) delete data.accessCodes[target.accessCodeKey]; if (target.pinKey) delete data.pinIndex[target.pinKey]; target.accessCodeKey = null; delete target.pin; delete target.pinHash; delete target.pinKey; for (const client of socketsFor(target.id)) client.disconnect(true); save(); acknowledge?.({ ok: true }); });
   socket.on("admin create access code", (request, acknowledge) => { const admin = mustAdmin(socket, acknowledge); if (!admin) return; const code = clean(request?.code, 64).replace(/\s/g, "") || generateAccessCode(); if (!validAccessCode(code)) return acknowledge?.({ ok: false, error: "Codes must be 4–64 letters or numbers." }); const record = createAccessCode(code, request?.admin === true); if (!record) return acknowledge?.({ ok: false, error: "That code is already in use." }); save(); acknowledge?.({ ok: true, code }); });
   socket.on("admin set account code", (request, acknowledge) => { const admin = mustAdmin(socket, acknowledge); if (!admin) return; const target = data.accounts[request?.accountId], code = clean(request?.code, 64).replace(/\s/g, ""); if (!target) return acknowledge?.({ ok: false, error: "Account not found." }); if (!validAccessCode(code)) return acknowledge?.({ ok: false, error: "Codes must be 4–64 letters or numbers." }); if (Object.values(data.accounts).some(account => account.id !== target.id && account.accessCode === code) || Object.values(data.accessCodes).some(record => (record.code === code || pinMatches(code, record.hash)) && record.accountId !== target.id)) return acknowledge?.({ ok: false, error: "That code is already in use." }); if (target.accessCodeKey && data.accessCodes[target.accessCodeKey]) delete data.accessCodes[target.accessCodeKey]; if (target.pinKey) delete data.pinIndex[target.pinKey]; if (target.pinKey) delete data.pinIndex[target.pinKey]; target.accessCode = code; target.accessCodeKey = pinKey(code); target.pin = code; delete target.pinHash; delete target.pinHash; target.pinKey = target.accessCodeKey; data.pinIndex[target.pinKey] = target.id; data.accessCodes[target.accessCodeKey] = { code, createdAt: Date.now(), admin: !!target.admin, accountId: target.id }; save(); acknowledge?.({ ok: true }); });
