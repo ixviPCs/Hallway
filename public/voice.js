@@ -422,15 +422,32 @@ async function joinVoice() {
       shareScreenButton.textContent = "Share screen";
       flipCameraButton.hidden = true;
     }
-    stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });if(adminMuted)stream.getAudioTracks().forEach(track=>track.enabled=false);
+    status.textContent = "Allow microphone access in your browser to join voice…";
+    let waitingForMicrophone = true;
+    const microphoneWaitTimer = setTimeout(() => {
+      if (waitingForMicrophone) status.textContent = "Still waiting for microphone access. Check the browser permission prompt or this site’s microphone settings.";
+    }, 10000);
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+    } finally {
+      waitingForMicrophone = false;
+      clearTimeout(microphoneWaitTimer);
+    }
+    if(adminMuted)stream.getAudioTracks().forEach(track=>track.enabled=false);
     participants.set(socket.id, { id: socket.id, name, invisible:isInvisible });
     if(!isInvisible)addCard(socket.id, name, localStorage.getItem("open-chat-avatar") || "", true);
     monitorAudio(socket.id, stream);
     updatePeople();
     socket.emit("voice join", {}, (result) => { if(result?.ok)applyInvisibleMode(result.invisible);status.textContent = result?.ok ? (result.invisible?"You are connected in invisible mode; your microphone remains active.":"You are connected. Turn on camera or share a screen when ready.") : result?.error || "Could not join voice."; });
-  } catch (error) { status.textContent = "Microphone access is needed to join voice chat. Allow it in your browser, then reload this page."; }
+  } catch (error) {
+    if (error?.name === "NotFoundError") status.textContent = "No microphone was found. Connect or select a microphone, then reload this page.";
+    else if (error?.name === "NotReadableError" || error?.name === "AbortError") status.textContent = "Your microphone could not be opened. Close other apps using it, then try again.";
+    else if (error?.name === "NotAllowedError" || error?.name === "SecurityError") status.textContent = "Microphone access is blocked. Allow it in your browser’s site settings, then reload this page.";
+    else status.textContent = "Microphone access failed. Check your browser’s microphone permission and try again.";
+  }
 }
 socket.on("connect", () => socket.emit("join", { mode: "create", deviceId }, (result) => {
+  status.textContent = "Checking your account…";
   if (!result?.ok) return status.textContent = result?.error || "Could not verify your account.";
   name = result.displayName || result.account?.name || name;
   isAdmin = !!result.account?.admin;
@@ -441,6 +458,7 @@ socket.on("connect", () => socket.emit("join", { mode: "create", deviceId }, (re
     const card = document.querySelector(`[data-participant="${CSS.escape(id)}"]`);
     if (id !== socket.id && card) addKickButton(card, id, person.name);
   });
+  status.textContent = "Loading voice settings…";
   socket.emit("get admin invisible",state=>{if(state?.ok){if(invisibleToggle)invisibleToggle.checked=state.invisible;applyInvisibleMode(state.invisible)}});socket.emit("voice config", (config) => {
     if (!config?.ok) { status.textContent = config?.error || "Could not load voice settings."; return; }
     rtcConfig = { iceServers: config.iceServers };
