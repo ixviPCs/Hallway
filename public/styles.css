@@ -12,6 +12,7 @@ h2 { font-size: 1.25rem; }
 .name-panel, .chat-panel { background: rgba(21, 27, 38, .88); border: 1px solid #303b51; border-radius: 18px; box-shadow: 0 20px 80px rgba(0,0,0,.25); padding: 20px; }
 .name-panel { width: min(calc(100% - 28px), 760px); margin: min(25vh, 220px) auto 24px; }
 .name-panel form { margin-top: 18px; }
+.clear-saved-login { width: 100%; margin-top: 12px; }
 .avatar-label { margin-top: 14px; }
 .avatar-label span { color: #8792a5; font-weight: 400; }
 label { display: block; font-size: .9rem; font-weight: 650; margin-bottom: 7px; }
