@@ -1,8 +1,8 @@
-const SHELL_CACHE = "open-chat-shell-v1";
+const SHELL_CACHE = "open-chat-shell-v2";
 const SHELL_ASSETS = [
   "/", "/mobile.html",
   "/styles.css?v=20261016-1", "/mobile.css?v=20261012-9",
-  "/offline-cache.js?v=20261017-1", "/app.js?v=20261017-2",
+  "/offline-cache.js?v=20261017-1", "/app.js?v=20261017-3",
   "/dm.js?v=20261017-1", "/socket.io/socket.io.js",
   "/vendor/emoji-picker/index.js", "/vendor/emoji-picker/picker.js", "/vendor/emoji-picker/database.js",
   "/vendor/emoji-picker-data/en/emojibase/data.json"
