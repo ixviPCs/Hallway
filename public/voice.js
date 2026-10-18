@@ -44,24 +44,32 @@ function updatePeople() {
   participantList.replaceChildren();
   people.forEach((person) => {
     const item = document.createElement("li");
-    item.textContent = person.name + (person.id === socket.id ? " (you)" : "");
+    item.textContent = person.name + (person.id === socket.id ? " (you)" : "") + (person.moderatorInvisible ? " · Invisible" : "");
     participantList.append(item);
   });
 }
 
 function addCard(id, displayName, avatar = "", isSelf = false) {
   let card = document.querySelector(`[data-participant="${CSS.escape(id)}"]`);
-  if (card) { addKickButton(card, id, displayName); return card; }
-  card = document.createElement("article");
-  card.className = "voice-card";
-  card.dataset.participant = id;
-  const initials = avatar ? document.createElement("img") : document.createElement("span");
-  initials.className = "voice-initials";
-  if (avatar) { initials.src = avatar; initials.alt = ""; } else initials.textContent = displayName.slice(0, 2).toUpperCase();
-  const label = document.createElement("strong");
-  label.textContent = isSelf ? `${displayName} (you)` : displayName;
-  card.append(initials, label);
-  grid.append(card);
+  const person = participants.get(id), moderatorInvisible = !!person?.moderatorInvisible;
+  if (!card) {
+    card = document.createElement("article");
+    card.dataset.participant = id;
+    const initials = avatar ? document.createElement("img") : document.createElement("span");
+    initials.className = "voice-initials";
+    if (avatar) { initials.src = avatar; initials.alt = ""; } else initials.textContent = displayName.slice(0, 2).toUpperCase();
+    const label = document.createElement("strong");
+    label.textContent = isSelf ? `${displayName} (you)` : displayName;
+    card.append(initials, label);
+    grid.append(card);
+  }
+  card.classList.add("voice-card");
+  card.classList.toggle("moderator-invisible", moderatorInvisible);
+  const nameLabel = card.querySelector(":scope > strong");
+  if (nameLabel) nameLabel.textContent = isSelf ? `${displayName} (you)` : displayName;
+  let invisibleLabel = card.querySelector(".voice-invisible-label");
+  if (moderatorInvisible && !invisibleLabel) { invisibleLabel = document.createElement("span"); invisibleLabel.className = "voice-invisible-label"; invisibleLabel.textContent = "Invisible"; invisibleLabel.setAttribute("aria-label", "Invisible moderator"); card.append(invisibleLabel); }
+  if (!moderatorInvisible) invisibleLabel?.remove();
   addKickButton(card, id, displayName);
   return card;
 }
@@ -206,10 +214,11 @@ function removeTracksFromConnections(oldStream) {
   connections.forEach((connection) => connection.getSenders().forEach((sender) => { if (oldTracks.has(sender.track)) connection.removeTrack(sender); }));
 }
 
-function makeConnection(peerId, peerName = "Hidden admin", peerAvatar = "", invisible = false) {
-  if (connections.has(peerId)) return connections.get(peerId);
-  participants.set(peerId, { id: peerId, name: peerName || "Hidden admin", avatar: peerAvatar || "", invisible });
-  if(!invisible)addCard(peerId, peerName || "Hidden admin", peerAvatar);
+function makeConnection(peerId, peerName = "Hidden admin", peerAvatar = "", invisible = false, moderatorInvisible = false) {
+  const person = { id: peerId, name: peerName || "Hidden admin", avatar: peerAvatar || "", invisible: !!invisible, moderatorInvisible: !!moderatorInvisible };
+  participants.set(peerId, person);
+  if (connections.has(peerId)) { if (invisible) document.querySelector(`[data-participant="${CSS.escape(peerId)}"]`)?.remove(); else addCard(peerId, person.name, person.avatar); updatePeople(); return connections.get(peerId); }
+  if(!invisible)addCard(peerId, person.name, person.avatar);
   updatePeople();
   const connection = new RTCPeerConnection(rtcConfig);
   connection.polite = socket.id > peerId;
@@ -247,14 +256,14 @@ function makeConnection(peerId, peerName = "Hidden admin", peerAvatar = "", invi
   return connection;
 }
 
-async function callPeer(peer) { const connection = makeConnection(peer.id, peer.name, peer.avatar, peer.invisible); await negotiate(peer.id, connection); }
+async function callPeer(peer) { const connection = makeConnection(peer.id, peer.name, peer.avatar, peer.invisible, peer.moderatorInvisible); await negotiate(peer.id, connection); }
 socket.on("voice participants", (peers) => peers.forEach(callPeer));
-socket.on("voice participant joined", (peer) => makeConnection(peer.id, peer.name, peer.avatar, peer.invisible));
-socket.on("voice participant visibility",({id,invisible,name:peerName,avatar})=>{const person=participants.get(id);if(!person)return;person.invisible=!!invisible;if(id===socket.id){applyInvisibleMode(invisible);return}if(!invisible){person.name=peerName||person.name;person.avatar=avatar||"";addCard(id,person.name,person.avatar)}else document.querySelector(`[data-participant="${CSS.escape(id)}"]`)?.remove();updatePeople()});
+socket.on("voice participant joined", (peer) => makeConnection(peer.id, peer.name, peer.avatar, peer.invisible, peer.moderatorInvisible));
+socket.on("voice participant visibility",({id,invisible,name:peerName,avatar,moderatorInvisible})=>{const person=participants.get(id);if(!person)return;person.invisible=!!invisible;person.moderatorInvisible=!!moderatorInvisible;if(id===socket.id){applyInvisibleMode(invisible);return}if(!invisible){person.name=peerName||person.name;person.avatar=avatar||"";addCard(id,person.name,person.avatar)}else document.querySelector(`[data-participant="${CSS.escape(id)}"]`)?.remove();updatePeople()});
 socket.on("hidden admin presence",({present})=>{hiddenAdminIndicator.hidden=!present});
 socket.on("voice participant left", removeParticipant);
-socket.on("voice signal", async ({ from, name: peerName, avatar, signal }) => {
-  const connection = makeConnection(from, peerName || "Hidden admin", avatar, participants.get(from)?.invisible || false);
+socket.on("voice signal", async ({ from, name: peerName, avatar, moderatorInvisible, signal }) => {
+  const connection = makeConnection(from, peerName || "Hidden admin", avatar, participants.get(from)?.invisible || false, moderatorInvisible);
   try {
     if (signal.media) {
       connection.remoteStreamKinds ||= {};
