@@ -1,4 +1,4 @@
-This # Hallway
+This #Hallway
 
 **A lightweight, school-friendly chat platform inspired by Discord.**
 
