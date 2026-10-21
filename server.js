@@ -8,7 +8,7 @@ const { Server } = require("socket.io");
 
 const app = express();
 const server = http.createServer(app);
-const io = new Server(server, { maxHttpBufferSize: 27 * 1024 * 1024 });
+const io = new Server(server, { maxHttpBufferSize: 36 * 1024 * 1024 });
 const PORT = Number(process.env.PORT) || 3000;
 const DATA_FILE = process.env.CHAT_DATA_FILE || path.join(__dirname, "chat-data.json");
 const UPLOAD_DIR = process.env.CHAT_UPLOAD_DIR || path.join(__dirname, "uploads");
@@ -23,7 +23,15 @@ const validDevice = (value) => typeof value === "string" && /^[a-z0-9-]{16,80}$/
 const validAccessCode = (value) => typeof value === "string" && /^[A-Za-z0-9]{4,64}$/.test(value);
 // Existing account PINs remain valid access codes, so current people are not locked out.
 const validPin = (value) => validAccessCode(value);
-const validAvatar = (value) => typeof value === "string" && /^data:image\/(png|jpeg|gif|webp);base64,/i.test(value) && value.length <= 1_400_000 ? value : "";
+const validAvatar = (value) => {
+  if (typeof value !== "string") return "";
+  const match = value.match(/^data:image\/(png|jpeg|gif|webp);base64,([a-z0-9+/]*={0,2})$/i);
+  if (!match) return "";
+  const encoded = match[2];
+  const padding = encoded.endsWith("==") ? 2 : encoded.endsWith("=") ? 1 : 0;
+  const decodedBytes = Math.floor(encoded.length * 3 / 4) - padding;
+  return decodedBytes <= 25 * 1024 * 1024 ? value : "";
+};
 const turnUrls = (process.env.TURN_URLS || "").split(",").map((url) => url.trim()).filter(Boolean);
 const turnSecret = process.env.TURN_SHARED_SECRET || "";
 function load() { try { const data = JSON.parse(fs.readFileSync(DATA_FILE, "utf8")); if (data.version === 2 || data.version === 3) return data; } catch {} return { version: 3, accounts: {}, devices: {}, accessCodes: {}, bans: { account: {} }, messages: [] }; }
